@@ -1,3 +1,13 @@
+##### Project-specific #####
+
+*.png
+*.pdf
+*.gif
+# intermediate file for graph visualization
+*.gv
+
+##### Python standard gitignore #####
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
