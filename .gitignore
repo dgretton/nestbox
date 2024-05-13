@@ -5,6 +5,8 @@
 *.gif
 # intermediate file for graph visualization
 *.gv
+# redis
+*.rdb
 
 ##### Python standard gitignore #####
 

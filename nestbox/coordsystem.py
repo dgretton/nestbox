@@ -68,11 +68,24 @@ def coerce_quaternion(tensor):
     else:
         return pyquaternion.Quaternion(*tensor)
 
+
 class CoordinateSystem:
-    def __init__(self):
+    names = set()
+
+    def __init__(self, name=None):
         self.observers = []
         self.measurements = [] # tuples of (mean, covariance) for each measurement, compiled from all observers
         self.stale = True
+        if name is None:
+            name = "CoordinateSystem0"
+            i = 1
+            while name in CoordinateSystem.names:
+                name = f"CoordinateSystem{i}"
+                i += 1
+        elif name in CoordinateSystem.names:
+            raise ValueError(f"Coordinate system with name {name} already exists")
+        CoordinateSystem.names.add(name)
+        self.name = name
 
     def add_local_observer(self, observer):
         self.observers.append(observer)

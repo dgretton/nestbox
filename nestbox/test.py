@@ -1,9 +1,12 @@
 from coordsystem import CoordinateSystem, Aligner, CameraObserver, PointTrackerObserver, look_rotation, transform_point
 from sim import SimEnvironment, RigidObject
+from run_optimizer import run_optimizer
 from visualizer import Visualizer
 import numpy as np
 import pyquaternion
 import sys
+import redis
+import json
 
 # function for a random coordinate system
 def init_random_coordinate_system():
@@ -40,7 +43,7 @@ def init_random_tracker_coordinate_system():
 
 def init_simple_tracker_coordinate_system():
     cs = CoordinateSystem()
-    cs.add_local_observer(PointTrackerObserver(position=(.5, .5, .5), variance=.03))
+    cs.add_local_observer(PointTrackerObserver(position=(.5, .5, .5), variance=.3))
     return cs, (0, 0, 0), pyquaternion.Quaternion(1, 0, 0, 0)
 
 def random_rigid_object(pos_diam=20): # make a rigidobject with a random origin and orientation. then, given a mean and variance, sample a bunch of points and add them to the object
@@ -54,7 +57,6 @@ def random_rigid_object(pos_diam=20): # make a rigidobject with a random origin 
     if tracker_demo:
         num_points = 5
     rigid_object.add_points(np.random.normal(mean, std_dev, (num_points, 3)))
-    print(f"points: {rigid_object.get_points()}")
     return rigid_object
 
 def origin_rigid_object(pos=(0, 0, 0)):
@@ -96,12 +98,13 @@ if __name__ == "__main__":
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
         if camera_demo:
             aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
+            aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
         
     all_measured_points = []
 
     for coord_sys, origin, orientation in aligner.iterate_coordinate_systems():
         if simple:
-            environment.place_coordinate_system(coord_sys, origin, orientation) # place at actual latent positions for now, i.e. the ground truth, with the problem already solved. purpose is to test the visualization of uncertainties
+            environment.place_coordinate_system(coord_sys, origin, orientation) # place at actual latent positions for now, i.e. the ground truth, with the problem already solved. purpose is to test stability and the visualization of uncertainties
         else:
             environment.place_coordinate_system(coord_sys, (0, 0, -4), (1, 0, 0, 0))
         for obs in coord_sys.observers:
@@ -115,19 +118,25 @@ if __name__ == "__main__":
                     all_measured_points.extend(points)
                     obs.measure(environment.project_to_image(obs, points))
 
-    if "--visualize" in sys.argv:
+    if "--visualize-graph" in sys.argv:
         aligner.build_model(all_measured_points, visualization=True)
         exit()
 
-    # Create a visualizer and plot the coordinate systems
+    # Connect to Redis
+    redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+
+    # Function to publish optimization updates
+    def publish_updates(channel, state):
+        # state: a dictionary containing the current state of the optimization
+        redis_client.publish(channel, json.dumps(state))
+
+    # visualizer
     visualizer = Visualizer(aligner, environment)
 
-    def update_fn():
-        for _ in range(11): # recommended to use an odd number so that period-2 oscillations are visible
-            aligner.gradient_descent_step(temp_known_points=all_measured_points)
-        for i, (_, origin, orientation) in enumerate(aligner.iterate_coordinate_systems()):
-            print(f"current coordinate system position: {origin}")
-            print(f"current coordinate system orientation: {orientation}")
-
-    visualizer.show(update_fn)#, delay=10000)
-    #visualizer.show_and_save_gif('./output.gif', update_fn=update_fn, num_frames=20)
+    def callback(_):
+        # Send optimization state to Redis
+        visualizer.draw()
+        state = visualizer.state()
+        publish_updates('optimization_update', state)
+    
+    run_optimizer(aligner, all_measured_points, callback=callback)
