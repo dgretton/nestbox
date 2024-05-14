@@ -1,13 +1,13 @@
 # run an aligner passed from an external source, presumably already set up with coordinate systems and observers
 import time
 
-def update(aligner, all_measured_points): # TODO remove all_measured_points
-    aligner.gradient_descent_step(temp_known_points=all_measured_points)
+def update(aligner):
+    aligner.gradient_descent_step()
 
-def run_optimizer(aligner, all_measured_points, callback=None, interval=.2):
+def run_optimizer(aligner, callback=None, interval=.2):
     start_time = time.time()
     while True:
-        update(aligner, all_measured_points)
+        update(aligner)
         if callback is not None and time.time() - start_time > interval:
             callback(aligner)
             for _, origin, orientation in aligner.iterate_coordinate_systems():

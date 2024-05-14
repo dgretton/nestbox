@@ -163,7 +163,7 @@ class Visualizer:
     def state(self):
         state = {}
         coordinate_systems = []
-        for i, (coord_sys, origin, orientation) in enumerate(self.aligner.iterate_coordinate_systems()):
+        for coord_sys, origin, orientation in self.aligner.iterate_coordinate_systems():
             coordinate_system_data = {}
             coordinate_system_data['name'] = coord_sys.name
             coordinate_system_data['basis'] = make_serializable({

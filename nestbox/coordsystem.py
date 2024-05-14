@@ -38,11 +38,11 @@ def look_rotation(forward, up=(0, 1, 0)):
     right = right / np.linalg.norm(right)
     up = np.cross(right, forward)
     rotation_matrix = np.array([right, up, -forward])
-    
+
     # Check if the rotation matrix is special orthogonal
     if not np.isclose(np.linalg.det(rotation_matrix), 1.0):
         raise ValueError("Matrix must be special orthogonal i.e. its determinant must be +1.0")
-    
+
     quaternion = pyquaternion.Quaternion(matrix=rotation_matrix)
     return quaternion
 
@@ -57,7 +57,7 @@ def coerce_numpy(tensor):
         return np.array(list(tensor), dtype=np.float32)
     else:
         return np.array(tensor, dtype=np.float32)
-    
+
 def coerce_quaternion(tensor):
     if isinstance(tensor, np.ndarray):
         return pyquaternion.Quaternion(*tensor)
@@ -110,13 +110,13 @@ class Observer:
     def __init__(self, position=(0, 0, 0), orientation=pyquaternion.Quaternion(1, 0, 0, 0)):
         self.position = position
         self.orientation = orientation
-    
+
     def bind(self, coordinate_system):
         self.coordinate_system = coordinate_system
-    
+
     def forward(self):
         return transform_point(self.position, self.orientation, [0, 0, 1])
-    
+
     def add_measurements(self, measurement_means_and_covariances):
         self.coordinate_system.set_stale() # mark that the model will now need to be rebuilt before more optimization can happen
         self.coordinate_system.measurements.extend(measurement_means_and_covariances)
@@ -143,7 +143,7 @@ class CameraObserver(Observer):
         self.focal_distance = focal_distance
         self.depth_of_field = depth_of_field
         self.resolution = resolution
-    
+
     def measure(self, img_space_angles):
         # scale img_space_angles to actual angles using the camera sensor size.  Also, the zero-point for phi is pi/2, not 0, to avoid pole singularity at phi=0.
         print(img_space_angles, "img_space_angles")
@@ -183,7 +183,7 @@ class CameraObserver(Observer):
         # add measurement means and covariances in coordinate system space
         self.add_measurements(zip(means_coord_sys_space, covs_coord_sys_space))
         return zip(means_coord_sys_space, covs_coord_sys_space)
-    
+
     def image_corners(self):
         img_space_angles = np.array([[1, 1], [-1, -1], [1, -1], [-1, 1]])
         return self.image_space_angles_to_coord_space(img_space_angles)
@@ -195,10 +195,10 @@ class CameraObserver(Observer):
             np.tan(angles[:, 1]-(np.pi/2)) * self.focal_distance,
             self.focal_distance * np.cos(angles[:, 0]) * np.sin(angles[:, 1])
         ]).T
-    
+
     def image_space_angles_to_coord_space(self, img_space_angles):
         return transform_points(self.position, self.orientation, self.image_space_angles_to_camera_space(img_space_angles))
-        
+
 
 class Aligner:
     def __init__(self):
@@ -238,18 +238,37 @@ class Aligner:
                 return True
         return False
 
-    def build_model(self, temp_known_points, visualization=False):
-        # temp_known_points is a list of points that are known to be in the global coordinate system space shared by the observers. Eventually, this will be replaced by another system to estimate the assignment of points to measurements.
+    def build_model(self, visualization=False):
         #if not self.stale(): TODO put back probably, once we know how to reset gradients without rebuilding the model
         #    return
-        
+
         # print('BUILDING MODEL')
 
         self.origins = torch.tensor(coerce_numpy(self.current_origins), dtype=torch.float32, requires_grad=True)
         self.orientations = torch.tensor(coerce_numpy(self.current_orientations), dtype=torch.float32, requires_grad=True)
 
+        # sampling stage
+        # pick a random coordinate system
+        # for every measurement in that coordinate system, sample a point from its distribution
+
+        random_idx = np.random.randint(0, len(self.coordinate_systems))
+        chosen_coord_sys = self.coordinate_systems[random_idx]
+
+        temp_sampled_points = []
+
+        for (chosen_mean, chosen_cov) in chosen_coord_sys.measurements:
+            chosen_mean = torch.tensor(chosen_mean, dtype=torch.float32)
+            chosen_cov = torch.tensor(chosen_cov, dtype=torch.float32)
+            temp_sampled_points.append(torch.distributions.MultivariateNormal(chosen_mean, chosen_cov).sample())
+
+        temp_sampled_points = torch.stack(temp_sampled_points)
+        self.sampled_points = temp_sampled_points.detach().numpy() # save for inspection
+
         coord_sys_log_likelihoods = []
+
         for i, coord_sys in enumerate(self.coordinate_systems):
+            if i == random_idx:
+                continue
             # all of these steps should happen in the pytorch framework so that we can compute gradients later
             # 1. transform the means of the measurements from coordinate system space to the "global space" where all the coordinate systems live.
             # 2. rotate the covariances of the measurements from coordinate system space to the "global space" using a conversion to a matrix and a pair of matrix multiplications (see rotate_covariance)
@@ -257,19 +276,17 @@ class Aligner:
             # 4. sum the negative log likelihoods of all the measurements
             # 5. store the sum in self.loss
 
-            temp_known_points = torch.tensor(coerce_numpy(temp_known_points), dtype=torch.float32, requires_grad=True)
             origin = self.origins[i]
             orientation = self.orientations[i]
-            for (mean, covariance), temp_known_point in zip(coord_sys.measurements, temp_known_points):
+            for (mean, covariance), temp_known_point in zip(coord_sys.measurements, temp_sampled_points):
                 mean = torch.tensor(mean, dtype=torch.float32, requires_grad=True)
                 covariance = torch.tensor(covariance, dtype=torch.float32, requires_grad=True)
                 global_space_mean = self.transform_point(origin, orientation, mean)
                 global_space_covariance = self.rotate_covariance(orientation, covariance)
                 coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_known_point, global_space_mean, global_space_covariance))
 
-        def print_grad(grad):
-            print(grad)
-
+        # def print_grad(grad):
+        #     print(grad)
         #self.origins.register_hook(print_grad)
         #self.orientations.register_hook(print_grad)
         self.loss = -torch.sum(torch.stack(coord_sys_log_likelihoods), dtype=torch.float32)
@@ -292,7 +309,7 @@ class Aligner:
 
         for coord_sys in self.coordinate_systems:
             coord_sys.set_stale(False)
-        
+
         if visualization:
             #render the computation graph
             import torchviz
@@ -302,22 +319,20 @@ class Aligner:
             # save it to an image
             dot.render('model_graph', format='png')
 
-    
-
-    def gradient_descent_step(self, learning_rate=0.001, temp_known_points=[]):
+    def gradient_descent_step(self, learning_rate=0.001):
 
         ### Build the model
         profile = False
         if profile:
             with profiler.profile(use_cuda=torch.cuda.is_available()) as prof:
                 with profiler.record_function("build_model"):
-                    self.build_model(temp_known_points)
+                    self.build_model()
                 with profiler.record_function("model_backward"):
                     self.loss.backward()
         else:
-            self.build_model(temp_known_points)
+            self.build_model()
             self.loss.backward()
-        
+
         ### Hyperparameter fine-tuning during optimization
         # keep track of the last N losses
         N = 100
@@ -341,8 +356,6 @@ class Aligner:
 
         ### Update parameters
         with torch.no_grad():
-            # self.origins.grad /= self.grad_scale
-            # self.orientations.grad /= self.grad_scale
             # If the gradients are larger than 1/learning_rate, scale them down
             max_grad = max(torch.abs(self.origins.grad).max(), torch.abs(self.orientations.grad).max())
             if max_grad > 1/learning_rate:
@@ -366,7 +379,7 @@ class Aligner:
         if profile:
             # Print out the profiler results
             print(prof.key_averages().table(sort_by="cuda_time_total" if torch.cuda.is_available() else "cpu_time_total", row_limit=10))
-    
+
     def list_is_oscillating(self, l):
         up = l[1] > l[0]
         for i in range(2, len(l)):
@@ -379,12 +392,12 @@ class Aligner:
 
     def transform_points(self, origin, orientation, points):
         return torch.stack([self.transform_point(origin, orientation, point) for point in points])
-    
+
     def transform_point(self, origin, orientation, point):
         # Ensure point is tensor, if not already
         point = coerce_numpy(point)
         point = torch.tensor(point, dtype=torch.float32, requires_grad=True) if not isinstance(point, torch.Tensor) else point
-        
+
         # Form the quaternion-like tensor by adding a zero scalar part
         point_quaternion = torch.cat((torch.tensor([0.0], requires_grad=True, dtype=torch.float32), point))  # Ensure this is a float tensor
 
@@ -406,10 +419,10 @@ class Aligner:
         scalar = q1[0] * q2[0] - torch.sum(q1[1:] * q2[1:], dtype=torch.float32)
         vector = q1[0] * q2[1:] + q2[0] * q1[1:] + torch.cross(q1[1:], q2[1:])
         return torch.cat((scalar.unsqueeze(0), vector))
-    
+
     def quaternion_to_rotation_matrix(self, q):
         """ Convert a quaternion into a rotation matrix.
-        
+
         Parameters:
             q (torch.Tensor): A tensor of shape (4,) representing the quaternion in the form [q0, q1, q2, q3]
 
@@ -422,10 +435,10 @@ class Aligner:
             [2 * (q1 * q2 + q0 * q3),      1 - 2 * (q1 * q1 + q3 * q3),  2 * (q2 * q3 - q0 * q1)],
             [2 * (q1 * q3 - q0 * q2),      2 * (q2 * q3 + q0 * q1),      1 - 2 * (q1 * q1 + q2 * q2)]
         ], dtype=torch.float32, requires_grad=True)
-    
+
     def rotate_covariance(self, quaternion, covariance):
         return self.quaternion_to_rotation_matrix(quaternion) @ covariance @ self.quaternion_to_rotation_matrix(quaternion).T
-    
+
     def multivariate_gaussian_log_likelihood(self, x, mean, covariance):
         """
         Calculate the multivariate Gaussian probability density function.
@@ -447,6 +460,20 @@ class Aligner:
         log_pdf_value = exponent - torch.log(normalization_constant_squared) * 0.5 #TODO: rewrite to take advantage of log properties
         self.log_pdf_value = log_pdf_value
         return log_pdf_value
+
+    # def generalized_jensen_shannon_divergence(self, feature_means, feature_covariances): TODO may come back to this
+        # \mu_M = \frac{1}{N} \sum_{i=1}^N \mu_{P_i}
+        # \Sigma_M = \frac{1}{N} \sum_{i=1}^N \Sigma_{P_i}
+        # D_{KL}(P_i \| M) = \frac{1}{2} \left( \text{tr}(\Sigma_M^{-1} \Sigma_{P_i}) + (\mu_{P_i} - \mu_M)^T \Sigma_M^{-1} (\mu_{P_i} - \mu_M) - k + \ln\left(\frac{\det \Sigma_M}{\det \Sigma_{P_i}}\right) \right)
+        # mixture_mean = torch.mean(feature_means, dim=0)
+        # mixture_covariance = torch.mean(feature_covariances, dim=0)
+        # mix_cov_inv = torch.linalg.inv(mixture_covariance)
+        # mix_cov_det = torch.linalg.det(mixture_covariance)
+        # divergence_terms = []
+        # for mean, covariance in zip(feature_means, feature_covariances):
+        #     mean_diff = mean - mixture_mean
+        #     divergence_terms.append(0.5 * (torch.trace(mix_cov_inv @ covariance) + mean_diff @ mix_cov_inv @ mean_diff - mean.size(0) + torch.log(mix_cov_det / torch.linalg.det(covariance)))) #TODO: check lol
+
 
 
 if __name__ == "__main__":
@@ -481,10 +508,10 @@ if __name__ == "__main__":
     #cs.add_local_observer(pto)
     a.add_coordinate_system(cs)
     #pto.measure([np.array([1, 1, 1])])
-    
+
     a.build_model(known_points)
     #a.loss.backward()
     from torchviz import make_dot
     make_dot(test_log_lik_grad).render("test_computation_graph", format="png")
     #print(coord_orientations.grad[0])
-    a.gradient_descent_step(learning_rate=0.01, temp_known_points=known_points)
+    a.gradient_descent_step(learning_rate=0.01, temp_sampled_points=known_points)
