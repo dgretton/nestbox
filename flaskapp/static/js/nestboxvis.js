@@ -118,9 +118,10 @@ class Cube {
         this.cube = null;
     }
     
-    addCube(size, position, color, linewidth, opacity) {
+    addCube(size, position, orientation, color, linewidth, opacity) {
         console.log('size: ' + size);
         console.log('position: ' + position);
+        console.log('orientation: ' + orientation);
         console.log('color: ' + color.getHexString());
         console.log('linewidth: ' + linewidth);
         console.log('opacity: ' + opacity);
@@ -129,13 +130,15 @@ class Cube {
         const material = new THREE.LineBasicMaterial({ color: color, linewidth: linewidth, transparent: opacity < 1, opacity: opacity });
         const wireframe = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), material);
         wireframe.position.set(position[0], position[1], position[2]);
+        const quaternion = quaternion_xyzw(orientation);
+        wireframe.quaternion.set(quaternion[0], quaternion[1], quaternion[2], quaternion[3]);
         this.scene.add(wireframe);
         this.cube = wireframe;
     }
 
     update(data) {
         if (this.cube == null) {
-            this.addCube(data.size, data.position, colorToHex(data.color), data.line_width, data.opacity);
+            this.addCube(data.size, data.position, data.orientation, colorToHex(data.color), data.line_width, data.opacity);
         }
     }
 }
