@@ -31,15 +31,15 @@ class SimEnvironment:
     def add_rigidobject(self, obj):
         self.rigidobjects.append(obj)
 
-    def place_coordinate_system(self, coord_sys, actual_origin, actual_orientation):
+    def place_coordinate_system(self, coord_sys, actual_origin, actual_orientation=pyquaternion.Quaternion(1, 0, 0, 0)):
         gt = GroundTruthCoordinateSystem(coord_sys, actual_origin, actual_orientation)
         for observer in coord_sys.observers:
             self._ground_truths_map[observer] = gt
 
     def points_from_observer_perspective(self, observer, points):
         gt = self._ground_truths_map[observer]
-        points = inverse_transform_points(observer.position, observer.orientation, points)
         points = inverse_transform_points(gt.origin, gt.orientation, points)
+        points = inverse_transform_points(observer.position, observer.orientation, points)
         return points
     
     def ground_truths(self):

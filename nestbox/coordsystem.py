@@ -257,12 +257,13 @@ class Aligner:
         temp_sampled_points = []
 
         for (chosen_mean, chosen_cov) in chosen_coord_sys.measurements:
-            chosen_mean = torch.tensor(chosen_mean, dtype=torch.float32)
-            chosen_cov = torch.tensor(chosen_cov, dtype=torch.float32)
+            chosen_mean = torch.tensor(transform_point(self.origins[random_idx], self.orientations[random_idx], chosen_mean), dtype=torch.float32)
+            chosen_cov = torch.tensor(rotate_covariance(self.orientations[random_idx], chosen_cov), dtype=torch.float32)
             temp_sampled_points.append(torch.distributions.MultivariateNormal(chosen_mean, chosen_cov).sample())
 
         temp_sampled_points = torch.stack(temp_sampled_points)
         self.sampled_points = temp_sampled_points.detach().numpy() # save for inspection
+        self.sampled_cs = random_idx
 
         coord_sys_log_likelihoods = []
 
@@ -319,7 +320,7 @@ class Aligner:
             # save it to an image
             dot.render('model_graph', format='png')
 
-    def gradient_descent_step(self, learning_rate=0.001):
+    def gradient_descent_step(self, learning_rate=0.01):
 
         ### Build the model
         profile = False
@@ -363,12 +364,12 @@ class Aligner:
                 self.orientations.grad /= max_grad * learning_rate
             self.origins.grad *= self.learning_rate_factor
             self.orientations.grad *= self.learning_rate_factor
-            # print(f"max origin grad: {torch.max(torch.abs(self.origins.grad))}, max orientation grad: {torch.max(torch.abs(self.orientations.grad))}")
-            # print(f"loss: {self.loss}")
             self.origins -= learning_rate * self.origins.grad
             self.orientations -= learning_rate * self.orientations.grad * .01
             self.origins.grad.zero_()
             self.orientations.grad.zero_()
+            # Move the mean of the origins back to zero for stability
+            self.origins -= torch.mean(self.origins, dim=0, keepdim=True)
             # Renormalizing the orientations to maintain them as unit quaternions
             self.orientations /= torch.linalg.norm(self.orientations, dim=1, keepdim=True, dtype=torch.float32)
 
