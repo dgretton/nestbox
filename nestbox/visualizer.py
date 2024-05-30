@@ -154,16 +154,17 @@ class Visualizer:
                 if isinstance(observer, PointTrackerObserver):
                      self.plot_cube(f"tracker {observer} box", observer.position, observer.orientation, parent_coord_sys=coord_sys.name, color=(0, 1, 1), line_width=.5)
                 if isinstance(observer, CameraObserver):
-                    #observer has observer.position, observer.orientation
-                    #we need to place it relative to the coordinate system's origin and orientation, meaning that its position and orientation need to be modified before plotting
                     self.plot_camera(f"camera {observer}", observer.position, observer.orientation, parent_coord_sys=coord_sys.name)
                     self.plot_point_collection(f"camera corners {observer}", observer.image_corners(), parent_coord_sys=coord_sys.name, color=(1, 0, 0), marker_size=0.05)
+
+        #sampled_points_transformed = transform_points(self.aligner.origins[self.aligner.sampled_cs], self.aligner.orientations[self.aligner.sampled_cs], self.aligner.sampled_points)
+        #self.plot_point_collection(f"{np.random.randint(0, 1000)} sampled points", self.aligner.sampled_points, color=(1, 1, 0), marker_size=0.01)
 
 
     def state(self):
         state = {}
         coordinate_systems = []
-        for i, (coord_sys, origin, orientation) in enumerate(self.aligner.iterate_coordinate_systems()):
+        for coord_sys, origin, orientation in self.aligner.iterate_coordinate_systems():
             coordinate_system_data = {}
             coordinate_system_data['name'] = coord_sys.name
             coordinate_system_data['basis'] = make_serializable({

@@ -38,7 +38,7 @@ def init_simple_binocular_coordinate_system():
 
 def init_random_tracker_coordinate_system():
     cs, origin, orientation = init_random_coordinate_system()
-    cs.add_local_observer(PointTrackerObserver(variance=.003))#, orientation=pyquaternion.Quaternion.random()))
+    cs.add_local_observer(PointTrackerObserver(variance=.003, position=(np.random.rand(3)-.5)*5, orientation=pyquaternion.Quaternion.random()))
     return cs, origin, orientation
 
 def init_simple_tracker_coordinate_system():
@@ -96,9 +96,14 @@ if __name__ == "__main__":
         if tracker_demo:
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
         if camera_demo:
             aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
             aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
+            # aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
         
     all_measured_points = []
 
@@ -106,7 +111,12 @@ if __name__ == "__main__":
         if simple:
             environment.place_coordinate_system(coord_sys, origin, orientation) # place at actual latent positions for now, i.e. the ground truth, with the problem already solved. purpose is to test stability and the visualization of uncertainties
         else:
-            environment.place_coordinate_system(coord_sys, (0, 0, -4), (1, 0, 0, 0))
+            if tracker_demo:
+                environment.place_coordinate_system(coord_sys, (0, 0, 
+                                                            np.random.randint(-5, 5)
+                                                            ), pyquaternion.Quaternion.random())
+            if camera_demo:
+                environment.place_coordinate_system(coord_sys, (0, 0, -4))
         for obs in coord_sys.observers:
             for rigidobject in environment.rigidobjects:
                 points = rigidobject.get_points()
@@ -119,16 +129,25 @@ if __name__ == "__main__":
                     obs.measure(environment.project_to_image(obs, points))
 
     if "--visualize-graph" in sys.argv:
-        aligner.build_model(all_measured_points, visualization=True)
+        aligner.build_model(visualization=True)
         exit()
 
     # Connect to Redis
+
     redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+    # check if connected
+    try:
+        redis_client.ping()
+    except redis.exceptions.ConnectionError:
+        print("Redis server not running. Start Redis server with 'redis-server'.")
 
     # Function to publish optimization updates
     def publish_updates(channel, state):
         # state: a dictionary containing the current state of the optimization
-        redis_client.publish(channel, json.dumps(state))
+        try:
+            redis_client.publish(channel, json.dumps(state))
+        except redis.exceptions.ConnectionError:
+            pass
 
     # visualizer
     visualizer = Visualizer(aligner, environment)
@@ -139,4 +158,4 @@ if __name__ == "__main__":
         state = visualizer.state()
         publish_updates('optimization_update', state)
     
-    run_optimizer(aligner, all_measured_points, callback=callback)
+    run_optimizer(aligner, callback=callback)
