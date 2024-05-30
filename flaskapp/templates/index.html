@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>3D Visualization</title>
+    <link rel="stylesheet" type="text/css" href="/static/css/style.css">
     <script type="importmap">
     {
         "imports": {
@@ -14,5 +15,17 @@
     <script type="module" src="/static/js/app.js"></script>
 </head>
 <body>
+    <div id="menu">
+        <div id="hamburger" onclick="toggleMenu()">☰</div>
+        <div id="settingsPanel" class="hidden">
+            <form>
+                <label for="pinSystem">Pin Coordinate System:</label>
+                <select id="pinSystem">
+                    <option value="none">None</option>
+                </select>
+                <button type="button" onclick="applyPin()">Apply</button>
+            </form>
+        </div>
+    </div>
 </body>
 </html>

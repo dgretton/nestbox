@@ -26,6 +26,13 @@ def redis_listener():
 # Run Redis Listener in a separate thread
 threading.Thread(target=redis_listener, daemon=True).start()
 
+@socketio.on('pin_system')
+def handle_pin_system(message):
+    pin = message['pin']
+    print(f"Pin coordinate system: {pin}")
+    # Convert the pin to a JSON string and publish to a Redis channel
+    redis_client.publish('pin_command', json.dumps({'pin': pin}))
+
 # Start the Flask-SocketIO server
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000)

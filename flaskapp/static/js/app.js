@@ -13,6 +13,8 @@ function init() {
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    // Background
+    renderer.setClearColor(0x222222, 1);
     document.body.appendChild(renderer.domElement);
 
     // Initialize controls
@@ -44,6 +46,34 @@ animate();
 // Connect to WebSocket server
 const socket = io.connect('http://' + document.location.hostname + ':' + location.port);
 
+// Menu actions
+function toggleMenu() {
+    const settingsPanel = document.getElementById('settingsPanel');
+    settingsPanel.classList.toggle('hidden');
+}
+
+window.toggleMenu = toggleMenu;
+
+function updateCoordinateSystemList() {
+    const select = document.getElementById('pinSystem');
+    // Clear existing options
+    select.innerHTML = '<option value="none">None</option>';
+    Object.keys(coordinateSystems).forEach((name) => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+    });
+}
+
+function applyPin() {
+    const selectedSystem = document.getElementById('pinSystem').value;
+    // send just the index of the pinned system
+    socket.emit('pin_system', { pin: selectedSystem });
+}
+
+window.applyPin = applyPin;
+
 // Listen for optimization updates
 socket.on('optimization_update', function(data) {
     console.log('Received optimization update:', data);
@@ -53,6 +83,7 @@ socket.on('optimization_update', function(data) {
         const name = coordSystemData.name;
         if (!(name in coordinateSystems)) {
             coordinateSystems[name] = new CoordinateSystem(scene);
+            updateCoordinateSystemList();
         }
         coordinateSystems[name].update(coordSystemData);
     });
