@@ -7,6 +7,7 @@ import pyquaternion
 import sys
 import redis
 import json
+import threading
 
 # function for a random coordinate system
 def init_random_coordinate_system():
@@ -97,9 +98,9 @@ if __name__ == "__main__":
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
-            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
-            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
-            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            # aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            # aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            # aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
         if camera_demo:
             aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
             aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
@@ -149,7 +150,26 @@ if __name__ == "__main__":
         except redis.exceptions.ConnectionError:
             pass
 
-    # visualizer
+    def redis_listener():
+        pubsub = redis_client.pubsub()
+        pubsub.subscribe(['optimization_update', 'pin_command'])
+        print("Redis listener started")
+
+        for message in pubsub.listen():
+            if message['type'] == 'message':
+                # if message['channel'].decode('utf-8') == 'optimization_update':
+                #     data = json.loads(message['data'])
+                #     # Handle optimization update
+                if message['channel'].decode('utf-8') == 'pin_command':
+                    pin_data = json.loads(message['data'])
+                    pin_index = pin_data['pin']
+                    print(f"Received pin command for coordinate system {pin_index}")
+                    aligner.pin(pin_index)
+
+    # Start the listener in a separate thread
+    threading.Thread(target=redis_listener, daemon=True).start()
+
+    # Visualizer
     visualizer = Visualizer(aligner, environment)
 
     def callback(_):

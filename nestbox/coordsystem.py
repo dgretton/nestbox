@@ -209,6 +209,7 @@ class Aligner:
         self.loss = None # negative log likelihood output of the model with respect to which we will compute gradients, created in build_model
         self.learning_rate_factor = 1.0
         self.losses = []
+        self.pinned_cs_idx = None
 
     def add_coordinate_system(self, coord_sys, initial_origin=None, initial_orientation=None):
         if initial_origin is None:
@@ -221,12 +222,32 @@ class Aligner:
 
     def reset_coordinate_system(self, coord_sys, set_origin, set_orientation):
         for i, cs in enumerate(self.coordinate_systems):
-            if cs == coord_sys:
+            if cs is coord_sys:
                 self.current_origins[i] = coerce_numpy(set_origin)
-                self.orientations[i] = coerce_numpy(set_orientation)
+                self.current_orientations[i] = coerce_numpy(set_orientation)
                 coord_sys.set_stale(True)
-                break
+                return
         raise ValueError("Coordinate system not found in aligner")
+
+    def pin(self, coord_sys):
+        if coord_sys is None or coord_sys == 'none':
+            self.reset_pin()
+            return
+        if isinstance(coord_sys, str):
+            for i, cs in enumerate(self.coordinate_systems):
+                if cs.name == coord_sys:
+                    self.pinned_cs_idx = i
+                    return
+        if isinstance(coord_sys, CoordinateSystem):
+            coord_sys = self.coordinate_systems.index(coord_sys)
+            return
+        if isinstance(coord_sys, int):
+            self.pinned_cs_idx = coord_sys
+            return
+        raise ValueError(f"Argument {coord_sys} of invalid type for pinning ({type(coord_sys)})")
+
+    def reset_pin(self):
+        self.pinned_cs_idx = None
 
     def iterate_coordinate_systems(self):
         for i, coord_sys in enumerate(self.coordinate_systems):
@@ -268,8 +289,8 @@ class Aligner:
         coord_sys_log_likelihoods = []
 
         for i, coord_sys in enumerate(self.coordinate_systems):
-            if i == random_idx:
-                continue
+            #if i == random_idx:
+            #    continue
             # all of these steps should happen in the pytorch framework so that we can compute gradients later
             # 1. transform the means of the measurements from coordinate system space to the "global space" where all the coordinate systems live.
             # 2. rotate the covariances of the measurements from coordinate system space to the "global space" using a conversion to a matrix and a pair of matrix multiplications (see rotate_covariance)
@@ -286,10 +307,6 @@ class Aligner:
                 global_space_covariance = self.rotate_covariance(orientation, covariance)
                 coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_known_point, global_space_mean, global_space_covariance))
 
-        # def print_grad(grad):
-        #     print(grad)
-        #self.origins.register_hook(print_grad)
-        #self.orientations.register_hook(print_grad)
         self.loss = -torch.sum(torch.stack(coord_sys_log_likelihoods), dtype=torch.float32)
         self.loss.retain_grad()
         #self.loss.register_hook(print_grad)
@@ -368,10 +385,21 @@ class Aligner:
             self.orientations -= learning_rate * self.orientations.grad * .01
             self.origins.grad.zero_()
             self.orientations.grad.zero_()
-            # Move the mean of the origins back to zero for stability
-            self.origins -= torch.mean(self.origins, dim=0, keepdim=True)
             # Renormalizing the orientations to maintain them as unit quaternions
             self.orientations /= torch.linalg.norm(self.orientations, dim=1, keepdim=True, dtype=torch.float32)
+            if self.pinned_cs_idx is None:
+                # Move the mean of the origins back to zero for stability
+                self.origins -= torch.mean(self.origins, dim=0, keepdim=True)
+            else:
+                # Transform all coordinate systems so that the one at the specified index is at 0, 0, 0, and 1, 0, 0, 0
+                pinned_origin = self.origins[self.pinned_cs_idx].clone()
+                pinned_orientation= self.orientations[self.pinned_cs_idx].clone()
+                for i in range(len(self.coordinate_systems)):
+                    self.origins[i] = self.inverse_transform_point(pinned_origin, pinned_orientation, self.origins[i])
+                    self.orientations[i] = self.hamilton_product(self.quaternion_conjugate(pinned_orientation), self.orientations[i])
+                # assert that the one at the specified index is at 0, 0, 0, and 1, 0, 0, 0 (or all close)
+                assert torch.allclose(self.origins[self.pinned_cs_idx], torch.tensor([0., 0., 0.]))
+                assert torch.allclose(self.orientations[self.pinned_cs_idx], torch.tensor([1., 0., 0., 0.]))
 
         # Detach the current states of origins and orientations
         self.current_origins = [origin.detach().numpy() for origin in self.origins]
@@ -411,6 +439,21 @@ class Aligner:
 
         return result
 
+    def inverse_transform_point(self, origin, orientation, point):
+        # Ensure point is tensor, if not already
+        point = coerce_numpy(point)
+        point = torch.tensor(point, dtype=torch.float32, requires_grad=True) if not isinstance(point, torch.Tensor) else point
+
+        # Form the quaternion-like tensor by adding a zero scalar part
+        point_quaternion = torch.cat((torch.tensor([0.0], requires_grad=True, dtype=torch.float32), point))
+
+        translated_point = point_quaternion - torch.cat((torch.tensor([0.0], dtype=torch.float32), origin))
+        #rotate by the inverse of the orientation
+        rotated_point = self.hamilton_product(self.quaternion_conjugate(orientation), translated_point)
+        rotated_point = self.hamilton_product(rotated_point, orientation)
+
+        return rotated_point[1:]
+
     def quaternion_conjugate(self, q):
         """Returns the conjugate of the quaternion."""
         # Negative sign on the vector part, keep scalar part the same
@@ -420,6 +463,16 @@ class Aligner:
         scalar = q1[0] * q2[0] - torch.sum(q1[1:] * q2[1:], dtype=torch.float32)
         vector = q1[0] * q2[1:] + q2[0] * q1[1:] + torch.cross(q1[1:], q2[1:])
         return torch.cat((scalar.unsqueeze(0), vector))
+
+    def quaternion_distance(self, q1, q2):
+        # Ensure quaternions are normalized
+        q1 = q1 / torch.linalg.norm(q1)
+        q2 = q2 / torch.linalg.norm(q2)
+        # Calculate the cosine of the angle between the two quaternions
+        cos_theta = torch.dot(q1, q2).abs()
+        # Convert cosine into angular distance
+        theta = torch.acos(cos_theta) * 2
+        return theta
 
     def quaternion_to_rotation_matrix(self, q):
         """ Convert a quaternion into a rotation matrix.
