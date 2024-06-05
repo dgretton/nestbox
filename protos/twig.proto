@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package nestbox.protos;
+
+option csharp_namespace = "Nestbox.Protos";  // This line tells protoc the namespace to use for C#
+
+message TransformationMatrix {
+    repeated float data = 1;  // Flattened matrix data, row-major order
+}
+
+message CovarianceMatrix {
+    repeated float upper_triangle = 1;  // Include diagonal and upper triangle elements
+}
+
+message Measurement {
+    repeated float mean = 1;
+    CovarianceMatrix covariance = 2;
+    TransformationMatrix transform = 3;
+}
+
+message Twig {
+    repeated Measurement measurements = 1;
+}
+
