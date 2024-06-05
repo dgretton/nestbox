@@ -6,7 +6,7 @@ setup(
     author="Dana Gretton",
     author_email="dgretton@mit.edu",
     description="Networked consensus coordinate system alignment",
-    long_description=open("README.md").read(),
+    long_description=open("../README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/dgretton/nestbox",
     packages=find_packages(),

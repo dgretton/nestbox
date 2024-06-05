@@ -1,0 +1,46 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nestbox.Core", "Nestbox.Core\Nestbox.Core.csproj", "{6DD2E62D-C271-411B-9B82-EF64E0E65350}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nestbox.Networking", "Nestbox.Networking\Nestbox.Networking.csproj", "{3D92E4DB-8D79-44E7-9CDF-ED91F7736A8B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nestbox.Interfaces", "Nestbox.Interfaces\Nestbox.Interfaces.csproj", "{510F5BE4-B7C4-4DF7-92F8-974CD4197736}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nestbox.Protos", "Nestbox.Protos\Nestbox.Protos.csproj", "{E8218869-B641-42CF-8673-21082234A7DF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nestbox.App", "Nestbox.App\Nestbox.App.csproj", "{FDF8699E-43E1-4E75-ACDB-E56288821C8B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6DD2E62D-C271-411B-9B82-EF64E0E65350}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6DD2E62D-C271-411B-9B82-EF64E0E65350}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6DD2E62D-C271-411B-9B82-EF64E0E65350}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6DD2E62D-C271-411B-9B82-EF64E0E65350}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3D92E4DB-8D79-44E7-9CDF-ED91F7736A8B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3D92E4DB-8D79-44E7-9CDF-ED91F7736A8B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3D92E4DB-8D79-44E7-9CDF-ED91F7736A8B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3D92E4DB-8D79-44E7-9CDF-ED91F7736A8B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{510F5BE4-B7C4-4DF7-92F8-974CD4197736}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{510F5BE4-B7C4-4DF7-92F8-974CD4197736}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{510F5BE4-B7C4-4DF7-92F8-974CD4197736}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{510F5BE4-B7C4-4DF7-92F8-974CD4197736}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E8218869-B641-42CF-8673-21082234A7DF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E8218869-B641-42CF-8673-21082234A7DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E8218869-B641-42CF-8673-21082234A7DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E8218869-B641-42CF-8673-21082234A7DF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FDF8699E-43E1-4E75-ACDB-E56288821C8B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FDF8699E-43E1-4E75-ACDB-E56288821C8B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FDF8699E-43E1-4E75-ACDB-E56288821C8B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FDF8699E-43E1-4E75-ACDB-E56288821C8B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
