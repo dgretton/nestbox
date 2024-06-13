@@ -22,6 +22,8 @@ def receive_full_message(conn):
 
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server_socket.bind(('10.1.20.59', 12345))
+#server_socket.bind(('127.0.0.1', 12345))
+print(f"Server is bound to {server_socket.getsockname()}")
 server_socket.listen(1)
 print("Server is listening...")
 connection, addr = server_socket.accept()
@@ -36,8 +38,10 @@ try:
             twig = Twig(data)
             print("Received Twig:")
             print(twig)
-            # Your additional prints for means and covariance
         except Exception as e:
-            print(f"Error parsing Twig: {e}")
+            # full traceback
+            import traceback
+            traceback.print_exc()
+            print(f"Error: {e}")
 finally:
     connection.close()

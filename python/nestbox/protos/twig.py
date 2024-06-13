@@ -19,10 +19,12 @@ class Twig:
     def __init__(self, bytes):
         self.twig = ProtoGenTwig()
         self.twig.ParseFromString(bytes)
-        print(self.twig.measurements[0])
-        print(self.twig.measurements[0].mean)
-        print(self.twig.measurements[0].covariance)
-        print(self.twig.measurements[0].covariance.upper_triangle)
+        if not self.twig.measurements or not self.twig.measurements[0].samples:
+            return
+        print(self.twig.measurements[0].samples[0])
+        print(self.twig.measurements[0].samples[0].mean)
+        print(self.twig.measurements[0].samples[0].covariance)
+        print(self.twig.measurements[0].samples[0].covariance.upper_triangle)
         print(self.twig.measurements[0].transform)
 
     def means(self):

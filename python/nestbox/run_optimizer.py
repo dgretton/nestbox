@@ -4,7 +4,7 @@ import time
 def update(aligner):
     aligner.gradient_descent_step()
 
-def run_optimizer(aligner, callback=None, interval=.2):
+def run_optimizer(aligner, callback=None, interval=.05):
     start_time = time.time()
     while True:
         update(aligner)

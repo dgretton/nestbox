@@ -1,7 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.IO;
 using Google.Protobuf;
 using Nestbox.Protos;
-using Nestbox.Networking; // Ensure this using directive is correct based on your namespaces
+using Nestbox.Networking;
+using Nestbox.Core;
 
 namespace Nestbox.App
 {
@@ -9,10 +13,42 @@ namespace Nestbox.App
     {
         static void Main(string[] args)
         {
+            //var configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config", "example_config.yaml"); //TODO: get from cmd args and only use config/config.yaml as default            
+            //config-path is the name of the config file arg
+            //'string[]' does not contain a definition for 'FirstOrDefault'
+            //IEnumerable<string> argsIter = args;
+            //string configPath = argsIter.FirstOrDefault(arg => arg.StartsWith("config-path="))?.Split('=')[1] ?? "config/config.yaml";
+            //using cast instead
+            string configPath = args.FirstOrDefault(arg => arg.StartsWith("config-path=") || arg.StartsWith("--config-path="))?.Split('=')[1] ?? "config/config.yaml";
+            //string configPath = args.FirstOrDefault(arg => arg.StartsWith("config-path="))?.Split('=')[1] ?? "config/config.yaml";
+            if (!File.Exists(configPath))
+            {
+                Console.WriteLine("Config file not found at " + configPath);
+                return;
+            }
+            Console.WriteLine("Config file:" + configPath);
+            AppConfig config = ConfigLoader.LoadConfig(configPath);
+            Console.WriteLine("Config loaded.");
+            //var connectionConfig = config.Network.Connections[config.Network.DefaultConnection]; //TODO: use cmd arg to give connection name if available
+            string connectionName = args.FirstOrDefault(arg => arg.StartsWith("connection="))?.Split('=')[1] ?? config.Network.DefaultConnection;
+            Console.WriteLine("Using connection config name: " + connectionName);
+            var connectionConfig = config.Network.Connections[connectionName];
+
             ConnectionManager manager = new ConnectionManager();
-            string ipAddress = "127.0.0.1";
-            int port = 12345;
-            IConnection connection = manager.CreateConnection("TCP", ipAddress, port);
+
+            // string ipAddress = "127.0.0.1";
+            // int port = 12345;
+            string ipAddress = connectionConfig.Ip;
+            int port = connectionConfig.Port;
+            string type = connectionConfig.Type;
+            Console.WriteLine("From config file " + configPath + ":");
+            Console.WriteLine("Connection type: " + type);
+            Console.WriteLine("Connection IP: " + ipAddress);
+            Console.WriteLine("Connection port: " + port);
+
+            IConnection connection = manager.CreateConnection(connectionConfig);
+            // IConnection connection = manager.CreateConnection("TCP", ipAddress, port);
+
 
             try
             {
@@ -20,12 +56,13 @@ namespace Nestbox.App
                 connection.Connect();
                 Console.WriteLine("Connected to server. Sending message...");
 
-                string message = "Hello, World!";
-                byte[] data = System.Text.Encoding.UTF8.GetBytes(message);
-                connection.Send(data);
+                // string message = "Hello, World!";
+                // byte[] data = System.Text.Encoding.UTF8.GetBytes(message);
+                // connection.Send(data);
 
-                Console.WriteLine("Message sent!");
+                // Console.WriteLine("Message sent!");
                 SendTwig(connection);
+                Console.WriteLine("Twig sent!");
             }
             catch (Exception e)
             {
@@ -38,22 +75,37 @@ namespace Nestbox.App
             }
         }
 
+
         public static void SendTwig(IConnection connection)
         {
             var twig = new Twig
             {
-                Measurements =
-                {
-                    new Measurement
+                CoordSysId = "c05d4581-f376-4c21-b722-b7b7694a9fd2",
+                StreamId = "xxxx",
+                Measurements = {
+                    new MeasurementSet
                     {
-                        Mean = { 1.0f, 2.0f, 3.0f },
-                        Covariance = new CovarianceMatrix { UpperTriangle = { 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f } },
-                        Transform = new TransformationMatrix { Data = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f } }
+                        Dimensions = { Dimension.X, Dimension.Y, Dimension.Z },
+                        Samples = {
+                            new Sample
+                            {
+                                Mean = { 1.0f, 2.0f, 3.0f },
+                                Covariance = new CovarianceMatrix { UpperTriangle = { 0.03f, 0.0f, 0.03f, 0.0f, 0.0f, 0.03f } }
+                            }
+                        },
+                        Transform = new TransformationMatrix { Data = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f } },
+                        IsHomogeneous = false
                     }
                 }
             };
 
             byte[] data = twig.ToByteArray();
+            byte[] lengthPrefix = BitConverter.GetBytes(data.Length);
+            if (BitConverter.IsLittleEndian)
+            {
+                Array.Reverse(lengthPrefix);
+            }
+            connection.Send(lengthPrefix);
             connection.Send(data);
         }
     }

@@ -1,0 +1,17 @@
+network:
+  default_connection: localhost_tcp
+  connections:
+    a_tls_connection:
+      type: tls
+      ip: 192.168.1.1
+      port: 15555
+      cert_path: /path/to/cert.pem
+      key_path: /path/to/key.pem
+    localhost_tcp:
+      type: tcp
+      ip: 127.0.0.1
+      port: 12345
+
+optimizer:
+  type: "gradient"
+  learning_rate: 0.01
