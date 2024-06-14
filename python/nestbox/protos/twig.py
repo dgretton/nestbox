@@ -1,8 +1,8 @@
-from nestbox.proto_generated.twig_pb2 import Twig as ProtoGenTwig
+from nestbox.proto_generated.twig_pb2 import Twig as GeneratedTwig
 import numpy as np
 
-def mean(measurement):
-    return np.array([measurement.mean])
+def mean(sample):
+    return np.array(sample.mean)
 
 def covariance(measurement):
     n = len(measurement.mean)
@@ -17,7 +17,7 @@ def covariance(measurement):
 
 class Twig:
     def __init__(self, bytes):
-        self.twig = ProtoGenTwig()
+        self.twig = GeneratedTwig()
         self.twig.ParseFromString(bytes)
         if not self.twig.measurements or not self.twig.measurements[0].samples:
             return
@@ -27,8 +27,8 @@ class Twig:
         print(self.twig.measurements[0].samples[0].covariance.upper_triangle)
         print(self.twig.measurements[0].transform)
 
-    def means(self):
-        return np.array([mean(measurement) for measurement in self.twig.measurements])
+    def all_means(self):
+        return np.array([mean(sample) for measurement in self.twig.measurements for sample in measurement.samples])
     
     def covariance(self):
         return np.array([covariance(measurement) for measurement in self.twig.measurements])
