@@ -1,5 +1,6 @@
 import numpy as np
 from ..numutil import coerce_numpy
+from ..coordsystem import CoordinateSystem
 
 class Aligner:
     def __init__(self):
