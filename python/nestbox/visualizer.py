@@ -1,11 +1,7 @@
 import numpy as np
-import json
-from cube import vertices as cube_vertices, edges as cube_edges
-from coordsystem import transform_points, quaternion_to_basis, transform_point, rotate_covariance, CameraObserver, PointTrackerObserver, coerce_quaternion, coerce_numpy
+from coordsystem import CameraObserver, PointTrackerObserver, coerce_numpy
+from numutil import transform_points, coerce_numpy
 from pyquaternion import Quaternion
-
-def qprod(q1, q2):
-    return coerce_quaternion(q1) * coerce_quaternion(q2)
 
 def transform_points_zipped(origin, quaternion, x, y, z):
     return list(zip(*transform_points(origin, quaternion, list(zip(x, y, z)))))

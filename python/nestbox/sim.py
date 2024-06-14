@@ -1,6 +1,6 @@
 import pyquaternion
 import numpy as np
-from coordsystem import transform_points, inverse_transform_points, coerce_numpy, coerce_quaternion
+from numutil import transform_points, inverse_transform_points, coerce_numpy, coerce_quaternion
 
 class RigidObject: # a rigid object in the environment coordinate system. This is a cheater object that knows its own position and orientation; no coordinate systems should know these details.
     def __init__(self, origin, orientation=None, feature_points=None):
