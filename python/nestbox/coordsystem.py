@@ -337,7 +337,7 @@ class Aligner:
             # save it to an image
             dot.render('model_graph', format='png')
 
-    def gradient_descent_step(self, learning_rate=0.01):
+    def gradient_descent_step(self, learning_rate=0.0001):
 
         ### Build the model
         profile = False

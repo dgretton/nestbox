@@ -10,7 +10,4 @@ def run_optimizer(aligner, callback=None, interval=.05):
         update(aligner)
         if callback is not None and time.time() - start_time > interval:
             callback(aligner)
-            for _, origin, orientation in aligner.iterate_coordinate_systems():
-                print(f"current coordinate system position: {origin}")
-                print(f"current coordinate system orientation: {orientation}")
             start_time = time.time()

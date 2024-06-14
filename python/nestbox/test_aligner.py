@@ -172,7 +172,10 @@ if __name__ == "__main__":
     # Visualizer
     visualizer = Visualizer(aligner, environment)
 
-    def callback(_):
+    def callback(aligner):
+        for _, origin, orientation in aligner.iterate_coordinate_systems():
+                print(f"current coordinate system position: {origin}")
+                print(f"current coordinate system orientation: {orientation}")
         # Send optimization state to Redis
         visualizer.draw()
         state = visualizer.state()
