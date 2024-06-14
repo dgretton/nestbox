@@ -1,5 +1,5 @@
 using System;
-using Nestbox.Core;
+using Nestbox.Interfaces;
 
 namespace Nestbox.Networking
 {

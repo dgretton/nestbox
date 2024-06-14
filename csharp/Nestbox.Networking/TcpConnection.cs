@@ -1,6 +1,7 @@
 using System;
 using System.Net.Sockets;
 using System.Text;
+using Nestbox.Interfaces;
 
 namespace Nestbox.Networking
 {

@@ -1,4 +1,4 @@
-namespace Nestbox.Networking
+namespace Nestbox.Interfaces
 {
     public interface IConnection
     {

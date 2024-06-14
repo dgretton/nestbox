@@ -5,7 +5,7 @@ using System.IO;
 using Google.Protobuf;
 using Nestbox.Protos;
 using Nestbox.Networking;
-using Nestbox.Core;
+using Nestbox.Interfaces;
 
 namespace Nestbox.App
 {
@@ -27,7 +27,8 @@ namespace Nestbox.App
                 return;
             }
             Console.WriteLine("Config file:" + configPath);
-            AppConfig config = ConfigLoader.LoadConfig(configPath);
+            IConfigurationProvider configProvider = ConfigProvider.GetProvider("yaml");
+            AppConfig config = configProvider.LoadConfig(configPath);
             Console.WriteLine("Config loaded.");
             //var connectionConfig = config.Network.Connections[config.Network.DefaultConnection]; //TODO: use cmd arg to give connection name if available
             string connectionName = args.FirstOrDefault(arg => arg.StartsWith("connection="))?.Split('=')[1] ?? config.Network.DefaultConnection;

@@ -4,10 +4,16 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <Nullable>enable</Nullable>
     <LangVersion>9.0</LangVersion>
+    <DefineConstants>USE_YAML,USE_JSON</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.3" />
     <PackageReference Include="YamlDotNet" Version="15.1.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nestbox.Interfaces\Nestbox.Interfaces.csproj" />
   </ItemGroup>
 
 </Project>
