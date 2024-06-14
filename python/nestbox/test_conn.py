@@ -1,4 +1,5 @@
 import socket
+import sys
 from nestbox.protos import Twig
 
 def receive_full_message(conn):
@@ -20,28 +21,30 @@ def receive_full_message(conn):
         data += packet
     return data
 
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.bind(('10.1.20.59', 12345))
-#server_socket.bind(('127.0.0.1', 12345))
-print(f"Server is bound to {server_socket.getsockname()}")
-server_socket.listen(1)
-print("Server is listening...")
-connection, addr = server_socket.accept()
-print(f"Connected by {addr}")
+if __name__ == "__main__":
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # ip address from cmd args with localhost default
+    ip_address = sys.argv[1] if len(sys.argv) > 1 else '127.0.0.1'
+    server_socket.bind((ip_address, 12345))
+    print(f"Server is bound to {server_socket.getsockname()}")
+    server_socket.listen(1)
+    print("Server is listening...")
+    connection, addr = server_socket.accept()
+    print(f"Connected by {addr}")
 
-try:
-    while True:
-        data = receive_full_message(connection)
-        if data is None:
-            break
-        try:
-            twig = Twig(data)
-            print("Received Twig:")
-            print(twig)
-        except Exception as e:
-            # full traceback
-            import traceback
-            traceback.print_exc()
-            print(f"Error: {e}")
-finally:
-    connection.close()
+    try:
+        while True:
+            data = receive_full_message(connection)
+            if data is None:
+                break
+            try:
+                twig = Twig(data)
+                print("Received Twig:")
+                print(twig)
+            except Exception as e:
+                # full traceback
+                import traceback
+                traceback.print_exc()
+                print(f"Error: {e}")
+    finally:
+        connection.close()
