@@ -281,4 +281,58 @@ class GradientAligner(TorchAligner):
 
 
 class AdamAligner(GradientAligner):
-    pass
+    def __init__(self, *args, beta1=0.9, beta2=0.999, epsilon=1e-8, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.m_t = None  # First moment vector
+        self.v_t = None  # Second moment vector
+        self.t = 0       # Timestep
+
+    def build_model(self, *args, **kwargs):
+        super().build_model(*args, **kwargs)
+        if self.m_t is None:
+            self.m_t = {'origins': torch.zeros_like(self.origins), 'orientations': torch.zeros_like(self.orientations)}
+        if self.v_t is None:
+            self.v_t = {'origins': torch.zeros_like(self.origins), 'orientations': torch.zeros_like(self.orientations)}
+
+    def gradient_descent_step(self, learning_rate=0.1):
+        self.build_model()
+        self.loss.backward()
+
+        self.t += 1
+        with torch.no_grad():
+            for param_name in ['origins', 'orientations']:
+                param = getattr(self, param_name)
+                grad = param.grad * (.0001 if param_name == 'orientations' else 1.0)
+
+                # Update biased first moment estimate
+                self.m_t[param_name] = self.beta1 * self.m_t[param_name] + (1 - self.beta1) * grad
+                # Update biased second raw moment estimate
+                self.v_t[param_name] = self.beta2 * self.v_t[param_name] + (1 - self.beta2) * (grad ** 2)
+
+                # Compute bias-corrected first moment estimate
+                m_hat = self.m_t[param_name] / (1 - self.beta1 ** self.t)
+                # Compute bias-corrected second raw moment estimate
+                v_hat = self.v_t[param_name] / (1 - self.beta2 ** self.t)
+
+                # Update parameters
+                param -= learning_rate * m_hat / (torch.sqrt(v_hat) + self.epsilon)
+                param.grad.zero_()
+
+            # Renormalize orientations if necessary
+            self.orientations /= torch.linalg.norm(self.orientations, dim=1, keepdim=True, dtype=torch.float32)
+            if self.pinned_cs_idx is None:
+                self.origins -= torch.mean(self.origins, dim=0, keepdim=True)
+            else:
+                pinned_origin = self.origins[self.pinned_cs_idx].clone()
+                pinned_orientation = self.orientations[self.pinned_cs_idx].clone()
+                for i in range(len(self.coordinate_systems)):
+                    self.origins[i] = self.inverse_transform_point(pinned_origin, pinned_orientation, self.origins[i])
+                    self.orientations[i] = self.hamilton_product(self.quaternion_conjugate(pinned_orientation), self.orientations[i])
+                assert torch.allclose(self.origins[self.pinned_cs_idx], torch.tensor([0., 0., 0.]))
+                assert torch.allclose(self.orientations[self.pinned_cs_idx], torch.tensor([1., 0., 0., 0.]))
+
+        self.current_origins = [origin.detach().numpy() for origin in self.origins]
+        self.current_orientations = [orientation.detach().numpy() for orientation in self.orientations]

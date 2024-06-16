@@ -1,5 +1,5 @@
 from coordsystem import CoordinateSystem, CameraObserver, PointTrackerObserver
-from nestbox.aligner import GradientAligner
+from nestbox.aligner import AdamAligner
 from sim import SimEnvironment, RigidObject
 from run_optimizer import run_optimizer
 from visualizer import Visualizer
@@ -88,7 +88,7 @@ if __name__ == "__main__":
                 environment.add_rigidobject(random_rigid_object())
 
     # Create an aligner and add some random coordinate systems
-    aligner = GradientAligner()
+    aligner = AdamAligner()
     if simple:
         if camera_demo:
             aligner.add_coordinate_system(*init_simple_binocular_coordinate_system())
