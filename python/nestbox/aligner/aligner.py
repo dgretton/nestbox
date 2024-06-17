@@ -46,7 +46,7 @@ class Aligner:
         if isinstance(coord_sys, int):
             self.pinned_cs_idx = coord_sys
             return
-        raise ValueError(f"Argument {coord_sys} of invalid type for pinning ({type(coord_sys)})")
+        raise ValueError(f"Argument {coord_sys} of invalid type for pinning ({type(coord_sys)}). Must be a string, {CoordinateSystem}, or int.")
 
     def reset_pin(self):
         self.pinned_cs_idx = None
