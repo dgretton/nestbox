@@ -4,6 +4,7 @@ namespace Nestbox.Interfaces
     {
         void Connect();
         void Send(byte[] data);
+        bool IsConnected();
         void Close();
     }
 }

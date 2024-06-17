@@ -32,6 +32,11 @@ namespace Nestbox.Networking
             }
         }
 
+        public bool IsConnected()
+        {
+            return _client != null && _client.Connected;
+        }
+
         public void Close()
         {
             _stream?.Close();
