@@ -137,7 +137,7 @@ class Visualizer:
     def draw(self):
         # Plot the rigid objects at their actual positions in the environment
         for rigidobject in self.environment.rigidobjects:
-            self.plot_point_collection(f"rigidobject {rigidobject}", rigidobject.get_points())
+            self.plot_point_collection(f"rigidobject {rigidobject}", rigidobject.get_points(), marker_size=0.005)
             self.plot_cube(f"rigidobject {rigidobject} box", rigidobject.origin, rigidobject.orientation)
 
         # Plot the observers and show measurements as ellipsoids.
