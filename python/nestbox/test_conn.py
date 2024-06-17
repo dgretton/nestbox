@@ -5,11 +5,11 @@ from nestbox.protos import Twig
 def receive_full_message(conn):
     # Read the length of the message (first 4 bytes)
     length_data = conn.recv(4)
-    print(length_data)
+    print(f"bytes representing the length of the message: {length_data}")
     if not length_data:
         return None
     message_length = int.from_bytes(length_data, byteorder='big') # RFC1700 says network byte order is big-endian
-    print(message_length)
+    print(f"message_length: {message_length}")
 
     # Read the message data based on the length
     data = b''
