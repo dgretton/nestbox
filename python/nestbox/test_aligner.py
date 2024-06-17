@@ -1,4 +1,4 @@
-from coordsystem import CoordinateSystem, CameraObserver, PointTrackerObserver
+from nestbox.coordsystem import CoordinateSystem, CameraObserver, PointTrackerObserver
 from nestbox.aligner import AdamAligner
 from sim import SimEnvironment, RigidObject
 from run_optimizer import run_optimizer
