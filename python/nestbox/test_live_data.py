@@ -1,5 +1,5 @@
-from coordsystem import PointTrackerObserver
-from nestbox.aligner import AdamAligner
+from nestbox.coordsystem import PointTrackerObserver
+from nestbox.aligner import AdamAligner, GradientAligner
 from sim import SimEnvironment, RigidObject
 from run_optimizer import run_optimizer
 from visualizer import Visualizer
@@ -48,7 +48,7 @@ hand_points = [
     (0.49422598, 1.13624716, 0.22093384),
 ]
 # center points at origin
-hand_points = np.array(hand_points) - np.mean(hand_points, axis=0)
+hand_points = (np.array(hand_points) - np.mean(hand_points, axis=0))*10
 
 
 
@@ -66,9 +66,9 @@ def hand_rigid_object(mirror=False):
 if __name__ == "__main__":
 
     environment = SimEnvironment()
-    environment.add_rigidobject(hand_rigid_object())
 
     # Create an aligner and add some random coordinate systems
+    # aligner = GradientAligner()
     aligner = AdamAligner()
 
     base_coord_sys, base_origin, base_orientation = init_random_tracker_coordinate_system()
@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
     aligner.pin(base_coord_sys)
     stream_for_coord_sys = {v: k for k, v in coordinate_systems_for_streams.items()}
-    meas_idx_for_stream = {'lefthand': 0, 'righthand': len(hand_points)}
+    stream_for_rigidobject = {v: k for k, v in rigidobjects_for_streams.items()}
 
 
     for coord_sys, origin, orientation in aligner.iterate_coordinate_systems():
@@ -96,8 +96,11 @@ if __name__ == "__main__":
                 if coord_sys is base_coord_sys or rigidobject is rigidobjects_for_streams[stream_for_coord_sys[coord_sys]]:
                     print(f"added points from {obs} to {coord_sys} (base cs is {base_coord_sys})")
                     points = rigidobject.get_points()
+                    feature_ids = [stream_for_rigidobject[rigidobject] + f'_{i}' for i in range(len(points))]
+                    points_dict = {feature_ids[i]: point for i, point in enumerate(points)}
                     if isinstance(obs, PointTrackerObserver):
-                        obs.measure(environment.points_from_observer_perspective(obs, points) + np.random.normal(0, obs.variance**.5, (len(points), 3)))
+                        observer_points = environment.points_from_observer_perspective(obs, points) + np.random.normal(0, obs.variance**.5*.1, (len(points), 3)) #TODO
+                        obs.measure({feature_ids[i]: obs_point for i, obs_point in enumerate(observer_points)})
 
     if "--visualize-graph" in sys.argv:
         aligner.build_model(visualization=True)
@@ -136,19 +139,15 @@ if __name__ == "__main__":
     # Start the listener in a separate thread
     threading.Thread(target=redis_listener, daemon=True).start()
 
-    live_hand_points_for_streams = {streamid: hand_points for streamid in coordinate_systems_for_streams}
+    live_hand_point_map = {streamid: hand_points for streamid in coordinate_systems_for_streams}
 
     # Visualizer
     visualizer = Visualizer(aligner, environment)
 
     def callback(aligner):
-        print("aligner callback")
-        for stream_id in live_hand_points_for_streams:
-            live_hand_points = live_hand_points_for_streams[stream_id]
-            meas_idx = meas_idx_for_stream[stream_id]
-            for i, (mean, cov) in enumerate(base_coord_sys.measurements[meas_idx:len(live_hand_points) + meas_idx]):
-                # somewhat invasive for demo, but should be safe to modify because this is executed between optimizer iterations
-                base_coord_sys.measurements[i + meas_idx] = (live_hand_points[i], cov)
+        for feature_id, (_, cov) in base_coord_sys.measurements.items():
+            if feature_id in live_hand_point_map:
+                base_coord_sys.measurements[feature_id] = (live_hand_point_map[feature_id], cov)
         # Send optimization state to Redis
         visualizer.draw()
         state = visualizer.state()
@@ -169,6 +168,8 @@ if __name__ == "__main__":
     connection, addr = server_socket.accept()
     print(f"Connected by {addr}")
 
+    average_center = np.array([0, 0, 0])
+
     try:
         while True:
             data = receive_full_message(connection)
@@ -178,11 +179,13 @@ if __name__ == "__main__":
                 twig = Twig(data)
                 print("Received Twig")
                 ms = twig.measurement_sets[0]
-                new_hand_points = ms.means
+                new_hand_points = ms.means*10
                 # skip if any of them are zero or approximately zero
                 if np.any(np.abs(new_hand_points) < 1e-6):
                     continue
-                live_hand_points_for_streams[twig.stream_id] = new_hand_points
+                average_center = .9*average_center + .1*np.mean(new_hand_points, axis=0)
+                for i, point in enumerate(new_hand_points):
+                    live_hand_point_map[twig.stream_id + f'_{i}'] = point - average_center
 
             except Exception as e:
                 # full traceback

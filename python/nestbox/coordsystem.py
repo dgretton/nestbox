@@ -7,7 +7,7 @@ class CoordinateSystem:
 
     def __init__(self, name=None):
         self.observers = []
-        self.measurements = [] # tuples of (mean, covariance) for each measurement, compiled from all observers
+        self.measurements = {} # tuples of (mean, covariance) for each measurement, compiled from all observers
         self.stale = True
         if name is None:
             name = "CoordinateSystem0"
@@ -52,18 +52,20 @@ class Observer:
 
     def add_measurements(self, measurement_means_and_covariances):
         self.coordinate_system.set_stale() # mark that the model will now need to be rebuilt before more optimization can happen
-        self.coordinate_system.measurements.extend(measurement_means_and_covariances)
+        self.coordinate_system.measurements.update(measurement_means_and_covariances)
 
 class PointTrackerObserver(Observer):
     def __init__(self, position=(0, 0, 0), orientation=pyquaternion.Quaternion(1, 0, 0, 0), variance=1.0):
         super().__init__(position, orientation)
         self.variance = variance
 
-    def measure(self, points):
-        means = transform_points(self.position, self.orientation, points)
-        covariances = [coerce_numpy(np.eye(3) * self.variance)] * len(points) # coerce is for data type
-        self.add_measurements(zip(means, covariances))
-        return zip(means, covariances)
+    def measure(self, points_dict):
+        meas_dict = {feature_id:
+                    (transform_point(self.position, self.orientation, point),
+                     coerce_numpy(np.eye(3) * self.variance))
+                 for feature_id, point in points_dict.items()}
+        self.add_measurements(meas_dict)
+        return meas_dict
 
 class CameraObserver(Observer):
     def __init__(self, position=(0, 0, 0), orientation=pyquaternion.Quaternion(1, 0, 0, 0), sensor_size=(np.pi/4, np.pi/4), focal_distance=10, depth_of_field=5, resolution=(1280, 720)):
@@ -77,7 +79,7 @@ class CameraObserver(Observer):
         self.depth_of_field = depth_of_field
         self.resolution = resolution
 
-    def measure(self, img_space_angles):
+    def measure(self, img_space_angles): # TODO output must be converted to a dictionary of feature ids instead of a list
         # scale img_space_angles to actual angles using the camera sensor size.  Also, the zero-point for phi is pi/2, not 0, to avoid pole singularity at phi=0.
         print(img_space_angles, "img_space_angles")
         angles = np.array(img_space_angles) * np.array(self.sensor_size) / 2 + np.array([0, np.pi/2])
