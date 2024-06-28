@@ -99,36 +99,32 @@ if __name__ == "__main__":
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
             aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
-            # aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
-            # aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
-            # aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
+            aligner.add_coordinate_system(*init_random_tracker_coordinate_system())
         if camera_demo:
             aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
             aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
             # aligner.add_coordinate_system(*init_random_binocular_coordinate_system())
-        
-    all_measured_points = []
 
     for coord_sys, origin, orientation in aligner.iterate_coordinate_systems():
         if simple:
             environment.place_coordinate_system(coord_sys, origin, orientation) # place at actual latent positions for now, i.e. the ground truth, with the problem already solved. purpose is to test stability and the visualization of uncertainties
         else:
             if tracker_demo:
-                environment.place_coordinate_system(coord_sys, (0, 0, 
-                                                            np.random.randint(-5, 5)
-                                                            ), pyquaternion.Quaternion.random())
+                environment.place_coordinate_system(coord_sys, (0, 0, np.random.randint(-5, 5)), pyquaternion.Quaternion.random())
             if camera_demo:
                 environment.place_coordinate_system(coord_sys, (0, 0, -4))
         for obs in coord_sys.observers:
             for rigidobject in environment.rigidobjects:
-                points = rigidobject.get_points()
                 if isinstance(obs, PointTrackerObserver):
+                    points = rigidobject.get_points()
                     for _ in range(3):
-                        all_measured_points.extend(points)
-                        obs.measure(environment.points_from_observer_perspective(obs, points) + np.random.normal(0, obs.variance**.5, (len(points), 3)))
+                        obs_points = environment.points_from_observer_perspective(obs, points) + np.random.normal(0, obs.variance**.5, (len(points), 3))
+                        measurements = obs.measure({fid: pt for fid, pt in zip(rigidobject.get_feature_ids(), obs_points)})
                 elif isinstance(obs, CameraObserver):
-                    all_measured_points.extend(points)
-                    obs.measure(environment.project_to_image(obs, points))
+                    measurements = obs.measure(environment.project_to_image(obs, rigidobject.get_points_dict()))
+                coord_sys.update_measurements(measurements)
 
     if "--visualize-graph" in sys.argv:
         aligner.build_model(visualization=True)

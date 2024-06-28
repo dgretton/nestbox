@@ -1,5 +1,6 @@
 import numpy as np
 from coordsystem import CameraObserver, PointTrackerObserver, coerce_numpy
+from measurement import NormalMeasurement
 from numutil import transform_points, coerce_numpy
 from pyquaternion import Quaternion
 
@@ -142,8 +143,12 @@ class Visualizer:
 
         # Plot the observers and show measurements as ellipsoids.
         for coord_sys, origin, orientation in self.aligner.iterate_coordinate_systems():
-            for feature_id, (mean, covariance) in coord_sys.measurements.items():
-                self.plot_covariance_ellipsoid(f"coordinate system {coord_sys} measurement {feature_id} ellipsoid", mean, covariance, parent_coord_sys=coord_sys.name, color=(0, 1, 1), opacity=.2)
+            for feature_id, meas in coord_sys.measurements.items():
+                if isinstance(meas, NormalMeasurement):
+                    mean, covariance = meas.get_sample()
+                    self.plot_covariance_ellipsoid(f"coordinate system {coord_sys} measurement {feature_id} ellipsoid", mean, covariance, parent_coord_sys=coord_sys.name, color=(0, 1, 1), opacity=.2)
+                else:
+                    print(f"Not visualizing measurement type {type(meas)}, not implemented")
             for observer in coord_sys.observers:
                 if isinstance(observer, PointTrackerObserver):
                      self.plot_cube(f"tracker {observer} box", observer.position, observer.orientation, parent_coord_sys=coord_sys.name, color=(0, 1, 1), line_width=.5)

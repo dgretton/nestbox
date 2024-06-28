@@ -2,6 +2,8 @@ from nestbox.coordsystem import PointTrackerObserver
 from nestbox.aligner import AdamAligner, GradientAligner
 from sim import SimEnvironment, RigidObject
 from run_optimizer import run_optimizer
+from measurement import NormalMeasurement
+from feature import to_feature
 from visualizer import Visualizer
 import numpy as np
 import pyquaternion
@@ -100,7 +102,8 @@ if __name__ == "__main__":
                     points_dict = {feature_ids[i]: point for i, point in enumerate(points)}
                     if isinstance(obs, PointTrackerObserver):
                         observer_points = environment.points_from_observer_perspective(obs, points) + np.random.normal(0, obs.variance**.5*.1, (len(points), 3)) #TODO
-                        obs.measure({feature_ids[i]: obs_point for i, obs_point in enumerate(observer_points)})
+                        measurements = obs.measure({feature_ids[i]: obs_point for i, obs_point in enumerate(observer_points)})
+                        coord_sys.update_measurements(measurements)
 
     if "--visualize-graph" in sys.argv:
         aligner.build_model(visualization=True)
@@ -139,15 +142,19 @@ if __name__ == "__main__":
     # Start the listener in a separate thread
     threading.Thread(target=redis_listener, daemon=True).start()
 
-    live_hand_point_map = {streamid: hand_points for streamid in coordinate_systems_for_streams}
+    live_hand_point_map = {to_feature(streamid + f'_{i}'): point
+                           for streamid, rigidobject in rigidobjects_for_streams.items()
+                           for i, point in enumerate(rigidobject.get_points())}
 
     # Visualizer
     visualizer = Visualizer(aligner, environment)
 
     def callback(aligner):
-        for feature_id, (_, cov) in base_coord_sys.measurements.items():
+        for feature_id, meas in base_coord_sys.measurements.items():
             if feature_id in live_hand_point_map:
-                base_coord_sys.measurements[feature_id] = (live_hand_point_map[feature_id], cov)
+                if not isinstance(meas, NormalMeasurement):
+                    continue
+                base_coord_sys.measurements[feature_id].mean = live_hand_point_map[feature_id]
         # Send optimization state to Redis
         visualizer.draw()
         state = visualizer.state()
@@ -185,7 +192,7 @@ if __name__ == "__main__":
                     continue
                 average_center = .9*average_center + .1*np.mean(new_hand_points, axis=0)
                 for i, point in enumerate(new_hand_points):
-                    live_hand_point_map[twig.stream_id + f'_{i}'] = point - average_center
+                    live_hand_point_map[to_feature(twig.stream_id + f'_{i}')] = point - average_center
 
             except Exception as e:
                 # full traceback
