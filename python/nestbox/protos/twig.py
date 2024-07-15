@@ -27,7 +27,7 @@ class MeasurementSet:
             self.covariances.append(covariance(sample))
         self.means = np.stack(self.means)
         self.covariances = np.stack(self.covariances)
-        self.transform = np.array(twig_ms.transform)
+        self.transform = np.array(twig_ms.transform.data).reshape(3, 3)
 
     def __str__(self):
         return f"""MeasurementSet:

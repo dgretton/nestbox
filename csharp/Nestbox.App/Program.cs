@@ -95,7 +95,7 @@ namespace Nestbox.App
                             }
                         },
                         Transform = new TransformationMatrix { Data = { 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f } },
-                        IsHomogeneous = false
+                        IsHomogeneous = { false, false, false }
                     }
                 }
             };

@@ -34,7 +34,7 @@ message MeasurementSet {
     repeated Dimension dimensions = 1;  // List of dimensions that this measurement regards
     repeated Sample samples = 2;
     TransformationMatrix transform = 3;
-    bool isHomogeneous = 4;  // Indicates if the measurement is in homogeneous coordinates
+    repeated bool isHomogeneous = 4;  // Indicates which dimensions of the measurement are in homogeneous coordinates
 }
 
 message Twig {
