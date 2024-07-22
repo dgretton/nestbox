@@ -12,6 +12,18 @@ network:
       ip: 127.0.0.1
       port: 12345
 
-optimizer:
-  type: "gradient"
+aligner:
+  type: "adam"
   learning_rate: 0.01
+
+peer_discovery:
+  type: "static"
+
+daemon:
+  server_type: "unix_socket"
+  server_address: "/tmp/nestbox_daemon.sock"
+
+database:
+  type: "redis"
+  host: "localhost"
+  port: 6379
