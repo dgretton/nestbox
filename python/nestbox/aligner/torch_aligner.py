@@ -3,6 +3,7 @@ import numpy as np
 from torch.autograd import profiler
 from ..numutil import transform_point, rotate_covariance, coerce_numpy
 from .aligner import Aligner
+from ..coordsystem import NormalMeasurement
 
 class TorchAligner(Aligner):
 
@@ -135,14 +136,24 @@ class GradientAligner(TorchAligner):
         random_idx = np.random.randint(0, len(self.coordinate_systems))
         chosen_coord_sys = self.coordinate_systems[random_idx]
 
-        temp_sampled_points = []
+        all_other_feature_ids = set(k for cs in self.coordinate_systems if cs is not chosen_coord_sys for k in cs.measurements.keys())
 
-        for (chosen_mean, chosen_cov) in chosen_coord_sys.measurements:
+        temp_sampled_points = []
+        temp_sampled_features = []
+
+        for feature_id, meas in chosen_coord_sys.measurements.items():
+            if feature_id not in all_other_feature_ids:
+                continue
+            if not isinstance(meas, NormalMeasurement):
+                raise ValueError("All measurements must be of type NormalMeasurement at the moment")
+            chosen_mean, chosen_cov = meas.get_sample()
             chosen_mean = torch.tensor(transform_point(self.origins[random_idx], self.orientations[random_idx], chosen_mean), dtype=torch.float32)
             chosen_cov = torch.tensor(rotate_covariance(self.orientations[random_idx], chosen_cov), dtype=torch.float32)
             temp_sampled_points.append(torch.distributions.MultivariateNormal(chosen_mean, chosen_cov).sample())
+            temp_sampled_features.append(feature_id)
 
         temp_sampled_points = torch.stack(temp_sampled_points)
+        self.sampled_features = temp_sampled_features[:] # save for inspection
         self.sampled_points = temp_sampled_points.detach().numpy() # save for inspection
         self.sampled_cs = random_idx
 
@@ -160,30 +171,24 @@ class GradientAligner(TorchAligner):
 
             origin = self.origins[i]
             orientation = self.orientations[i]
-            for (mean, covariance), temp_known_point in zip(coord_sys.measurements, temp_sampled_points):
+            # for (mean, covariance), temp_known_point in zip(coord_sys.measurements, temp_sampled_points):
+            #     mean = torch.tensor(mean, dtype=torch.float32, requires_grad=True)
+            #     covariance = torch.tensor(covariance, dtype=torch.float32, requires_grad=True)
+            #     global_space_mean = self.transform_point(origin, orientation, mean)
+            #     global_space_covariance = self.rotate_covariance(orientation, covariance)
+            #     coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_known_point, global_space_mean, global_space_covariance))
+            for j, feature_id in enumerate(temp_sampled_features):
+                if feature_id not in coord_sys.measurements:
+                    continue
+                mean, covariance = coord_sys.measurements[feature_id].get_sample()
                 mean = torch.tensor(mean, dtype=torch.float32, requires_grad=True)
                 covariance = torch.tensor(covariance, dtype=torch.float32, requires_grad=True)
                 global_space_mean = self.transform_point(origin, orientation, mean)
                 global_space_covariance = self.rotate_covariance(orientation, covariance)
-                coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_known_point, global_space_mean, global_space_covariance))
+                coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_sampled_points[j], global_space_mean, global_space_covariance))
 
         self.loss = -torch.sum(torch.stack(coord_sys_log_likelihoods), dtype=torch.float32)
         self.loss.retain_grad()
-        #self.loss.register_hook(print_grad)
-
-        def print_grad_fn_chain(grad_fn, level=0):
-            if grad_fn is None:
-                return
-            indent = ' ' * 4 * level
-            print(f"{indent}{grad_fn}")
-            if hasattr(grad_fn, 'variable'):  # Check if grad_fn is associated with a tensor
-                tensor = grad_fn.variable
-                print(f"  {indent}Gradient: {tensor.grad if tensor.requires_grad else 'No grad'}")
-                tensor.register_hook(print_grad)
-            for sub_fn, _ in grad_fn.next_functions:
-                if sub_fn is not None:
-                    print_grad_fn_chain(sub_fn, level+1)
-        #print_grad_fn_chain(self.loss.grad_fn)
 
         for coord_sys in self.coordinate_systems:
             coord_sys.set_stale(False)
@@ -197,7 +202,7 @@ class GradientAligner(TorchAligner):
             # save it to an image
             dot.render('model_graph', format='png')
 
-    def gradient_descent_step(self, learning_rate=0.0001):
+    def gradient_descent_step(self, learning_rate=0.000001):
 
         ### Build the model
         profile = False
@@ -253,7 +258,7 @@ class GradientAligner(TorchAligner):
             else:
                 # Transform all coordinate systems so that the one at the specified index is at 0, 0, 0, and 1, 0, 0, 0
                 pinned_origin = self.origins[self.pinned_cs_idx].clone()
-                pinned_orientation= self.orientations[self.pinned_cs_idx].clone()
+                pinned_orientation = self.orientations[self.pinned_cs_idx].clone()
                 for i in range(len(self.coordinate_systems)):
                     self.origins[i] = self.inverse_transform_point(pinned_origin, pinned_orientation, self.origins[i])
                     self.orientations[i] = self.hamilton_product(self.quaternion_conjugate(pinned_orientation), self.orientations[i])
@@ -281,7 +286,7 @@ class GradientAligner(TorchAligner):
 
 
 class AdamAligner(GradientAligner):
-    def __init__(self, *args, beta1=0.9, beta2=0.999, epsilon=1e-8, **kwargs):
+    def __init__(self, *args, beta1=0.9, beta2=0.999, epsilon=1e-4, **kwargs):
         super().__init__(*args, **kwargs)
         self.beta1 = beta1
         self.beta2 = beta2
@@ -305,7 +310,7 @@ class AdamAligner(GradientAligner):
         with torch.no_grad():
             for param_name in ['origins', 'orientations']:
                 param = getattr(self, param_name)
-                grad = param.grad * (.0001 if param_name == 'orientations' else 1.0)
+                grad = param.grad #* (.0001 if param_name == 'orientations' else 1.0)
 
                 # Update biased first moment estimate
                 self.m_t[param_name] = self.beta1 * self.m_t[param_name] + (1 - self.beta1) * grad

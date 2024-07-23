@@ -1,13 +1,15 @@
 import pyquaternion
 import numpy as np
 from nestbox.numutil import transform_point, transform_points, rotate_covariance, coerce_numpy
+from feature import to_feature
+from measurement import Measurement, NormalMeasurement
 
 class CoordinateSystem:
     names = set()
 
     def __init__(self, name=None):
         self.observers = []
-        self.measurements = [] # tuples of (mean, covariance) for each measurement, compiled from all observers
+        self.measurements = {} # map of features to their measurements
         self.stale = True
         if name is None:
             name = "CoordinateSystem0"
@@ -22,19 +24,15 @@ class CoordinateSystem:
 
     def add_local_observer(self, observer):
         self.observers.append(observer)
-        observer.bind(self)
+
+    def update_measurements(self, measurements):
+        if not all(isinstance(m, Measurement) for m in measurements):
+            raise ValueError("All measurements must be Measurement objects")
+        self.set_stale() # mark that the model will now need to be rebuilt before more optimization can happen
+        self.measurements.update({m.feature: m for m in measurements})
 
     def set_stale(self, stale=True):
         self.stale = stale
-
-    def add_measurements(self, measurements):
-        # make sure it's a list of tuples of numpy arrays
-        if not all(isinstance(measurement, tuple) and len(measurement) == 2 for measurement in measurements):
-            raise ValueError("measurements must be tuples of 2 numpy arrays")
-        for mean, covariance in measurements:
-            if not isinstance(mean, np.ndarray) or not isinstance(covariance, np.ndarray):
-                raise ValueError("measurements must be tuples of 2 numpy arrays")
-        self.measurements.extend(measurements)
 
 
 class Observer:
@@ -53,15 +51,11 @@ class Observer:
         self.position = position
         self.orientation = orientation
 
-    def bind(self, coordinate_system):
-        self.coordinate_system = coordinate_system
-
     def forward(self):
         return transform_point(self.position, self.orientation, [0, 0, 1])
 
-    def add_measurements(self, measurement_means_and_covariances):
-        self.coordinate_system.set_stale() # mark that the model will now need to be rebuilt before more optimization can happen
-        self.coordinate_system.add_measurements(measurement_means_and_covariances)
+    def measure(self):
+        raise NotImplementedError("Subclasses must implement this method")
 
 
 class PointTrackerObserver(Observer):
@@ -69,11 +63,12 @@ class PointTrackerObserver(Observer):
         super().__init__(position, orientation)
         self.variance = variance
 
-    def measure(self, points):
-        means = transform_points(self.position, self.orientation, points)
-        covariances = [coerce_numpy(np.eye(3) * self.variance)] * len(points) # coerce is for data type
-        self.add_measurements(zip(means, covariances))
-        return zip(means, covariances)
+    def measure(self, points_dict):
+        return [NormalMeasurement(
+            to_feature(feature),
+            transform_point(self.position, self.orientation, point),
+            coerce_numpy(np.eye(3) * self.variance))
+            for feature, point in points_dict.items()]
 
 
 class CameraObserver(Observer):
@@ -88,9 +83,16 @@ class CameraObserver(Observer):
         self.depth_of_field = depth_of_field
         self.resolution = resolution
 
-    def measure(self, img_space_angles):
+    def measure(self, img_space_angles_dict):
+        # img_space_angles_dict is a dictionary of feature ids or feature objects to their angles in the image space, measured in the range [-1, 1] in both dimensions.
+        print(img_space_angles_dict, "img_space_angles_dict")
+        features = []
+        img_space_angles = []
+        for feature, angle in img_space_angles_dict.items():
+            features.append(to_feature(feature))
+            img_space_angles.append(angle)
+
         # scale img_space_angles to actual angles using the camera sensor size.  Also, the zero-point for phi is pi/2, not 0, to avoid pole singularity at phi=0.
-        print(img_space_angles, "img_space_angles")
         angles = np.array(img_space_angles) * np.array(self.sensor_size) / 2 + np.array([0, np.pi/2])
 
         # Transform means to the coordinate system space
@@ -125,8 +127,7 @@ class CameraObserver(Observer):
         print(means_coord_sys_space, "means_coord_sys_space")
         print(covs_coord_sys_space, "covs_coord_sys_space")
         # add measurement means and covariances in coordinate system space
-        self.add_measurements(zip(means_coord_sys_space, covs_coord_sys_space))
-        return zip(means_coord_sys_space, covs_coord_sys_space)
+        return [NormalMeasurement(feature, mean, cov) for feature, mean, cov in zip(features, means_coord_sys_space, covs_coord_sys_space)]
 
     def image_corners(self):
         img_space_angles = np.array([[1, 1], [-1, -1], [1, -1], [-1, 1]])
