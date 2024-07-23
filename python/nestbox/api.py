@@ -1,5 +1,5 @@
 from .api_client import NestboxAPIClient
-from .config import DAEMON_URL
+from .config import DAEMON_CONN_CONFIG
 import numpy as np
 
 _client = None
@@ -7,7 +7,7 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        _client = NestboxAPIClient(DAEMON_URL)
+        _client = NestboxAPIClient(DAEMON_CONN_CONFIG)
     return _client
 
 def get_transform(cs1, cs2):
@@ -16,6 +16,12 @@ def get_transform(cs1, cs2):
 def from_cs(cs_name):
     builder = TransformationBuilder()
     return builder.in_cs(cs_name)
+
+def create_coordinate_system(name=None):
+    return _get_client().create_coordinate_system(name)
+
+def add_measurements(cs_guid, measurements):
+    return _get_client().add_measurements(cs_guid, measurements)
 
 # Other main module API functions...
 
@@ -36,6 +42,7 @@ class OptimizedTransformer:
 
     def transform_many(self, state_vectors):
         return np.dot(state_vectors, self.transform_matrix.T)
+
 
 class TransformationBuilder:
     def __init__(self):
@@ -74,4 +81,3 @@ class TransformationBuilder:
 
     def __call__(self, state_vector):
         return self.transform(state_vector)
-

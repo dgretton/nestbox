@@ -2,15 +2,17 @@ import threading
 import queue
 import json
 import uuid
+import base64
 import time
 from typing import Dict, Any, List
-from nestbox.interfaces import AlignerClientInterface, ConnectionInterface, AlignmentResultInterface
+from nestbox.interfaces import AlignerClientInterface, ConnectionInterface, AlignmentResultInterface, ServerInterface, ServerConnectionInterface
 from nestbox.networking import QueueConnectionPair
 from nestbox.aligner import AdamAligner
 from nestbox.coordsystem import CoordinateSystem
 from nestbox.run_optimizer import run_optimizer
+from nestbox.protos import Twig
 
-class AsyncMessageHandler:
+class AsyncResponseHandler:
     def __init__(self, connection):
         self.pending_requests = {}
         assert isinstance(connection, ConnectionInterface)
@@ -21,11 +23,13 @@ class AsyncMessageHandler:
         return str(uuid.uuid4())
     
     def start(self):
+        print("Starting async message handler")
         self.running = True
         self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
         self.receive_thread.start()
 
     def _receive_loop(self):
+        print("Starting async message handler receive loop")
         if not self._connection.is_connected():
             self._connection.connect()
         try:
@@ -45,6 +49,7 @@ class AsyncMessageHandler:
         self.running = False
 
     def send_request(self, request_type, request_data, callback=None):
+        print(f"Sending async message handler request: {request_type}")
         request_id = self.generate_request_id()
         request = {
             "type": request_type,
@@ -54,7 +59,11 @@ class AsyncMessageHandler:
         self.pending_requests[request_id] = request
         if callback is not None:
             self.callbacks[request_id] = callback
+        print(f"really right about to send async message handler request: {request}")
+        if not self._connection.is_connected():
+            self._connection.connect()
         self._connection.send(json.dumps(request).encode())
+        print(f"Sent async message handler request: {request}")
         return request_id
 
     def handle_response(self, response):
@@ -73,24 +82,79 @@ class AsyncMessageHandler:
         raise NotImplementedError("Subclasses must implement _handle_response()")
 
 
-class AlignerHandler(AsyncMessageHandler):
-    def __init__(self, connection, aligner):
-        super().__init__(connection)
-        self.aligner = aligner
+class _DaemonLocalAlignerServer(ServerInterface):
+    def __init__(self, server_connection):
+        assert isinstance(server_connection, ServerConnectionInterface)
+        self._server_connection = server_connection
+        self.aligner = AdamAligner() # TODO: based on config
+        def _run_aligner():
+            run_optimizer(self.aligner)
+        self.aligner_thread = threading.Thread(target=_run_aligner, daemon=True)
+    
+    def start(self):
+        self._server_thread = threading.Thread(target=self._serve, daemon=True)
+        self._server_thread.start()
 
-    def _handle_response(self, request, response, callback):
+    def _serve(self):
+        self._server_connection.connect()
+        print(f"Server listening")
+        while True:
+            client_connection = self._server_connection.accept()
+            client_thread = threading.Thread(target=self.handle_connection, args=(client_connection,))
+            client_thread.start()
+
+    def stop(self):
+        self._server_connection.disconnect()
+
+    def handle_connection(self, connection):
+        if not connection.is_connected():
+            connection.connect()
+        while self._server_connection.is_connected():
+            print(f"receiving data from connection: {connection.connection_info}")
+            request_data = connection.receive()
+            print("data received")
+            if request_data:
+                # Process data
+                response = self.process_data(request_data)
+                connection.send(response)
+            else:
+                connection.disconnect()
+
+    def process_data(self, request_data: bytes) -> bytes:
+        print(f"Received request: {request_data}")
+        request = json.loads(request_data.decode())
+        print(f"JSON request: {request}")
         request_type = request['type']
-        if callback is None:
-            def callback(*args, **kwargs):
-                pass
+        response = {
+            "type": "response",
+            "request_type": request_type,
+            "request_id": request['request_id'],
+            "status": "error"
+        }
+
+        def success():
+            response.update({"status": "success"})
+
+        print(f"Processing request type: {request_type}")
         if request_type == 'create_cs':
-            cs_guid = response['data']['cs_guid']
+            cs_guid = request['cs_guid']
+            coord_sys = CoordinateSystem(name=cs_guid)
+            self.aligner.add_coordinate_system(coord_sys)
+            print('HOLY SH*T WE ACTUALLY INITIALIZED A COORDINATE SYSTEM ALL THE WAAAAY')
+            success()
         elif request_type == 'add_twig':
-            pass
+            #data in bytes is base64 encoded in field twig_data
+            data64 = request['twig_data']
+            data = base64.b64decode(data64)
+            twig = Twig(data)
+            print(f"Received Twig: {twig}")
+            success()
         elif request_type == 'add_measurement_set':
             pass
         elif request_type == 'start_alignment':
-            pass
+            if not self.aligner_thread.is_alive():
+                print("Starting aligner thread")
+                self.aligner_thread.start()
         elif request_type == 'cancel_alignment':
             pass
         elif request_type == 'alignment_status':
@@ -109,24 +173,61 @@ class AlignerHandler(AsyncMessageHandler):
             pass
         elif request_type == 'unpin':
             pass
+        return json.dumps(response).encode()
 
+
+class SingleServerConnection(ServerConnectionInterface):
+    def __init__(self, single_connection):
+        self._single_connection = single_connection
+        self.accepted = False
+
+    def accept(self) -> ConnectionInterface:
+        if not self.accepted:
+            self.accepted = True
+            return self._single_connection
+        time.sleep(365 * 24 * 60 * 60)  # Sleep for a year
+
+    def connect(self):
+        pass
+
+    def disconnect(self):
+        pass
+
+    def is_connected(self):
+        return True
+    
+    @property
+    def connection_info(self):
+        return {"type": "single_connection"}
+
+class DaemonLocalAsyncResponseHandler(AsyncResponseHandler):
+    def _handle_response(self, request, response, callback):
+        #TODO: custom handling & callback-ing for different request types
+        if callback is None:
+            return
+        if request['type'] == 'create_cs':
+            if response['status'] == 'success':
+                callback(request['cs_guid'])
+            else:
+                callback(None)
+            return
+        try:
+            callback(response)
+        except TypeError:
+            callback()
 
 class DaemonLocalAlignerClient(AlignerClientInterface):
     def __init__(self, config):
-        self.aligner = AdamAligner()
-        self._connection, aligner_side_connection = QueueConnectionPair().create_connection_pair()
-        self.handler = AlignerHandler(aligner_side_connection, self.aligner)
-        threading.Thread(target=self._run_aligner, daemon=True).start()
-
-    def _run_aligner(self):
-        run_optimizer(self.aligner)
-
-    def _send_request(self, request_type, request_data):
-        pass
+        self._connection, aligner_server_conn = QueueConnectionPair().get_connection_pair()
+        server_conn = SingleServerConnection(aligner_server_conn)
+        server = _DaemonLocalAlignerServer(server_conn)
+        server.start()
+        self._connection.connect()
+        self.handler = DaemonLocalAsyncResponseHandler(self._connection)
+        self.handler.start() # start the handler's receive loop (it automatically runs in a new thread)
         
     def start_alignment(self) -> None:
-        ({"type": "start_alignment"})
-
+        self.handler.send_request("start_alignment", {}, callback=lambda: print("Alignment started successfully"))
 
     def cancel_alignment(self) -> None:
         ({"type": "cancel_alignment"})
@@ -152,13 +253,15 @@ class DaemonLocalAlignerClient(AlignerClientInterface):
         ({"type": "set_alignment_params", "params": params})
         
 
-    def create_coordinate_system(self, guid: str) -> str:
-        ({"type": "create_cs", "guid": guid})
+    def create_coordinate_system(self, guid: str, callback: callable) -> None:
+        self.handler.send_request("create_cs", {"cs_guid": guid}, callback=callback)
         
 
     def delete_coordinate_system(self, cs_guid: str) -> str:
         ({"type": "delete_cs", "cs_guid": cs_guid})
-        
+
+    def add_measurements(self, cs_guid: str, measurements: List[Dict[str, Any]], callback: callable) -> None:
+        self.handler.send_request("add_measurement_set", {"cs_guid": cs_guid, "measurements": measurements}, callback=callback)
 
     def pin_coordinate_system(self, cs_guid: str) -> str:
         ({"type": "pin", "cs_guid": cs_guid})
@@ -254,7 +357,7 @@ class DummyAlignmentResult(AlignmentResultInterface):
 # {
 #     "request_id":"(uuid4)",
 #     "type": "create_cs",
-#     "guid": "unique-guid-string"
+#     "cs_guid": "unique-guid-string"
 # }
 # {
 #     "request_id":"(uuid4)",

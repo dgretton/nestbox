@@ -5,6 +5,7 @@ from ..coordsystem import CoordinateSystem
 class Aligner:
     def __init__(self):
         self.coordinate_systems = []
+        self.name_map = {}
         # name everything so it can show up in the computation graph
         self.current_origins = []
         self.current_orientations = []
@@ -13,7 +14,7 @@ class Aligner:
         self.losses = []
         self.pinned_cs_idx = None
 
-    def add_coordinate_system(self, coord_sys, initial_origin=None, initial_orientation=None):
+    def add_coordinate_system(self, coord_sys: CoordinateSystem, initial_origin=None, initial_orientation=None):
         if initial_origin is None:
             initial_origin = np.zeros(3)
         if initial_orientation is None:
@@ -21,6 +22,7 @@ class Aligner:
         self.current_origins.append(coerce_numpy(initial_origin))
         self.current_orientations.append(coerce_numpy(initial_orientation))
         self.coordinate_systems.append(coord_sys)
+        self.name_map[coord_sys.name] = coord_sys
 
     def reset_coordinate_system(self, coord_sys, set_origin, set_orientation):
         for i, cs in enumerate(self.coordinate_systems):
@@ -60,6 +62,17 @@ class Aligner:
             if coord_sys.stale:
                 return True
         return False
+    
+    def get_coord_sys(self, name):
+        return self.name_map[name]
+    
+    def delete_coord_sys(self, name):
+        cs = self.get_coord_sys(name)
+        idx = self.coordinate_systems.index(cs)
+        self.coordinate_systems.pop(idx)
+        self.name_map.pop(name)
+        self.current_origins.pop(idx)
+        self.current_orientations.pop(idx)
 
     def build_model(self):
         pass

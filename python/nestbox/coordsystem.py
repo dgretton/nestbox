@@ -1,6 +1,6 @@
 import pyquaternion
 import numpy as np
-from numutil import transform_point, transform_points, rotate_covariance, coerce_numpy
+from nestbox.numutil import transform_point, transform_points, rotate_covariance, coerce_numpy
 
 class CoordinateSystem:
     names = set()
@@ -27,6 +27,15 @@ class CoordinateSystem:
     def set_stale(self, stale=True):
         self.stale = stale
 
+    def add_measurements(self, measurements):
+        # make sure it's a list of tuples of numpy arrays
+        if not all(isinstance(measurement, tuple) and len(measurement) == 2 for measurement in measurements):
+            raise ValueError("measurements must be tuples of 2 numpy arrays")
+        for mean, covariance in measurements:
+            if not isinstance(mean, np.ndarray) or not isinstance(covariance, np.ndarray):
+                raise ValueError("measurements must be tuples of 2 numpy arrays")
+        self.measurements.extend(measurements)
+
 
 class Observer:
     '''
@@ -52,7 +61,8 @@ class Observer:
 
     def add_measurements(self, measurement_means_and_covariances):
         self.coordinate_system.set_stale() # mark that the model will now need to be rebuilt before more optimization can happen
-        self.coordinate_system.measurements.extend(measurement_means_and_covariances)
+        self.coordinate_system.add_measurements(measurement_means_and_covariances)
+
 
 class PointTrackerObserver(Observer):
     def __init__(self, position=(0, 0, 0), orientation=pyquaternion.Quaternion(1, 0, 0, 0), variance=1.0):
@@ -64,6 +74,7 @@ class PointTrackerObserver(Observer):
         covariances = [coerce_numpy(np.eye(3) * self.variance)] * len(points) # coerce is for data type
         self.add_measurements(zip(means, covariances))
         return zip(means, covariances)
+
 
 class CameraObserver(Observer):
     def __init__(self, position=(0, 0, 0), orientation=pyquaternion.Quaternion(1, 0, 0, 0), sensor_size=(np.pi/4, np.pi/4), focal_distance=10, depth_of_field=5, resolution=(1280, 720)):
@@ -131,4 +142,3 @@ class CameraObserver(Observer):
 
     def image_space_angles_to_coord_space(self, img_space_angles):
         return transform_points(self.position, self.orientation, self.image_space_angles_to_camera_space(img_space_angles))
-

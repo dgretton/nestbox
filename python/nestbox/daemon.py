@@ -1,10 +1,17 @@
-from nestbox.networking import TCPDaemonServer, UnixSocketDaemonServer
 from nestbox.interfaces import PeerDiscoveryInterface, ConnectionInterface, DatabaseInterface, AlignerClientInterface
 from nestbox.daemon_local_aligner_client import DaemonLocalAlignerClient
 import uuid
+import time
 
 class NestboxDaemon:
-    def __init__(self, config):
+    _instance = None
+
+    def __new__(cls): # Singleton pattern
+        if cls._instance is None:
+            cls._instance = super(NestboxDaemon, cls).__new__(cls)
+        return cls._instance
+
+    def initialize(self, config): # must be called before using the daemon
         self.config = config
         self.peer_discovery_client = self.initialize_peer_discovery_client()
         assert isinstance(self.peer_discovery_client, PeerDiscoveryInterface)
@@ -12,17 +19,8 @@ class NestboxDaemon:
         assert isinstance(self.database_client, DatabaseInterface)
         self.aligner_client = self.initialize_aligner_client()
         assert isinstance(self.aligner_client, AlignerClientInterface)
-        # Initialize the server based on configuration
-        dconfig = config['daemon']
-        server_type = dconfig['server_type']
-        server_address = dconfig['server_address']
-        if server_type.lower() == 'unix_socket':
-            self.server = UnixSocketDaemonServer(server_address, self)
-        elif server_type.lower() == 'tcp':
-            self.server = TCPDaemonServer(server_address, self)
-        else:
-            raise ValueError(f"Invalid server type: {server_type}")
-        self.connections = {}
+        self.peer_connections = {}
+        self.coordsys_names = CSNames()
 
     def initialize_peer_discovery_client(self):
         # Check if peer discovery process is running
@@ -34,16 +32,12 @@ class NestboxDaemon:
         return True  # Placeholder
 
     def initialize_database_client(self):
-        if not self.is_database_client_running():
-            self.launch_database_client()
         return DatabaseClientImplementation(self.config['database'])
     
     def is_database_client_running(self):
         return True
 
     def initialize_aligner_client(self):
-        if not self.is_aligner_client_running():
-            self.launch_aligner_client()
         return DaemonLocalAlignerClient(self.config['aligner'])
     
     def is_aligner_client_running(self):
@@ -52,9 +46,42 @@ class NestboxDaemon:
     def establish_peer_connections(self):
         peers = self.peer_discovery_client.get_peers()
         for peer in peers:
-            if peer.id not in self.connections:
+            if peer.id not in self.peer_connections:
                 connection = self.create_connection(peer.connection_info)
-                self.connections[peer.id] = connection
+                self.peer_connections[peer.id] = connection
+
+    def create_coordsys(self):
+        #new guid
+        cs_guid = str(uuid.uuid4())
+        #add to aligner
+        blocker = [True, None]
+        def unblock(guid):
+            blocker[0] = False
+            blocker[1] = guid
+        self.aligner_client.create_coordinate_system(cs_guid, callback=unblock)
+        print("Waiting for alignment client to create coordinate system")
+        while blocker[0]:
+            time.sleep(0.02)
+        print("Coordinate system created, unblocked.")
+        return blocker[1]
+
+    def name_coordsys(self, cs_guid, cs_name):
+        try:
+            self.coordsys_names.set_name(cs_guid, cs_name)
+        except ValueError as e:
+            return False
+        return True
+    
+    def add_measurements(self, cs_guid, measurements):
+        blocker = [True, None]
+        def unblock(success):
+            blocker[0] = False
+            blocker[1] = success
+        self.aligner_client.add_measurements(cs_guid, measurements, callback=unblock)
+        while blocker[0]:
+            time.sleep(0.02)
+        if not blocker[1]:
+            raise RuntimeError("Failed to add measurements")
 
     def handle_coordsys_request(self, cs_guids):
         # pseudocode
@@ -68,16 +95,11 @@ class NestboxDaemon:
         cs_alignments = {guid:None for guid in cs_guids}
         self.aligner_client.get_cs_status(cs_guids)
         if not alignment_data:
-            for peer_id, connection in self.connections.items():
+            for peer_id, connection in self.peer_connections.items():
                 peer_data = self.request_alignment_data(connection, cs_guids)
                 if peer_data:
                     alignment_data.update(peer_data)
         alignment_data = self.database_client.get_alignment_data(cs_guids)
-        
-        if alignment_data:
-            return self.aligner_client.perform_alignment(alignment_data)
-        else:
-            return None
 
     def request_alignment_data(self, connection, cs_guids):
         # Use the PeerDiscoveryAPI to request data from a peer
@@ -87,25 +109,20 @@ class NestboxDaemon:
         # Example request processing logic
         print(f"Received request: {request}")
         return f"Processed: {request}"  # Simple echo for demonstration
-
+    
     def start(self):
-        try:
-            self.server.start()
-        except Exception as e:
-            print(f"Failed to start the server: {e}")
-
-    def stop(self):
-        try:
-            self.server.stop()
-        except Exception as e:
-            print(f"Failed to stop the server: {e}")
+        if not self.is_database_client_running():
+            self.database_client.connect()
+        # while we're using the daemon-local alignment "client" (really a client interface thinly wrapping an aligner that it itself launches, running in a thread) no need to start the aligner, it's initialized and you can send a start_alignment request to it
+        # TODO: kick off a peer discovery process with a callback to connect to all
+        # the returned connections, starting with something like 
+        # self.peer_discovery_client.start_discovery()
 
 
 class PeerDiscoveryClientImplementation(PeerDiscoveryInterface):
     def get_peers(self):
         # For now, return a static list of peer info
-        return [PeerInfo("peer1", ConnectionInfo(...), {...}),
-                PeerInfo("peer2", ConnectionInfo(...), {...})]
+        return [ConnectionConfig('localhost', 12345, 'tcp', 'peer1'), ConnectionConfig('localhost', 12346, 'tcp', 'peer2')]
     def connect(self):
         pass
     def connection(self):
@@ -128,6 +145,7 @@ class PeerDiscoveryClientImplementation(PeerDiscoveryInterface):
         pass
     def unregister_self(self):
         pass
+
 
 class DatabaseClientImplementation(DatabaseInterface):
     def __init__(self, config):
@@ -167,13 +185,35 @@ class DatabaseClientImplementation(DatabaseInterface):
         pass
 
 
-if __name__ == "__main__":
-    import yaml
-    import argparse
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config-path", required=True, help="Path to the configuration file")
-    args = ap.parse_args()
-    with open(args.config_path, 'r') as file:
-        config = yaml.safe_load(file)
-    daemon = NestboxDaemon(config)
-    daemon.start()
+class CSNames:
+    def __init__(self):
+        self.names = {}
+        self.cs_guids = {}
+
+    def get_name(self, cs_guid):
+        return self.names.get(cs_guid)
+    
+    def get_guid(self, cs_name):
+        return self.cs_guids.get(cs_name)
+    
+    def set_name(self, cs_guid, cs_name):
+        if cs_name in self.cs_guids and self.cs_guids[cs_name] != cs_guid:
+            raise ValueError(f"Name '{cs_name}' already exists for a different coordinate system, GUID {self.cs_guids[cs_name]}")
+        self.names[cs_guid] = cs_name
+        self.cs_guids[cs_name] = cs_guid
+
+    def set_guid(self, cs_name, cs_guid):
+        self.cs_guids[cs_name] = cs_guid
+        self.names[cs_guid] = cs_name
+
+    def remove_name(self, cs_guid):
+        cs_name = self.names.pop(cs_guid)
+        self.cs_guids.pop(cs_name)
+        return cs_name
+    
+    def remove_guid(self, cs_name):
+        cs_guid = self.cs_guids.pop(cs_name)
+        self.names.pop(cs_guid)
+        return cs_guid
+
+global_daemon = NestboxDaemon()

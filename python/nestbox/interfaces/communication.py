@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Union
 
 class PublisherInterface(ABC):
     @abstractmethod
     def publish(self, topic: str, message: Any) -> None:
         pass
+
 
 class SubscriberInterface(ABC):
     @abstractmethod
@@ -30,21 +31,13 @@ class PubSubInterface(PublisherInterface, SubscriberInterface):
     pass
 
 
-class ConnectionInterface(ABC):
+class BaseConnectionInterface(ABC):
     @abstractmethod
     def connect(self) -> None:
         pass
 
     @abstractmethod
     def disconnect(self) -> None:
-        pass
-
-    @abstractmethod
-    def send(self, data: bytes) -> None:
-        pass
-
-    @abstractmethod
-    def receive(self) -> bytes:
         pass
 
     @abstractmethod
@@ -58,4 +51,47 @@ class ConnectionInterface(ABC):
         Return a dictionary with connection information.
         This could include things like address, protocol, etc.
         """
+        pass
+
+
+class ConnectionInterface(BaseConnectionInterface):
+    @abstractmethod
+    def send(self, data: bytes) -> None:
+        pass
+
+    @abstractmethod
+    def receive(self) -> bytes:
+        pass
+
+
+class ServerConnectionInterface(BaseConnectionInterface):
+    @abstractmethod
+    def accept(self) -> ConnectionInterface:
+        pass
+
+
+class ConnectionConfigInterface(ABC):
+    @property
+    @abstractmethod
+    def type(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def address(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def port(self) -> int:
+        pass
+
+    @property
+    @abstractmethod
+    def key_file(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def cert_file(self) -> str:
         pass

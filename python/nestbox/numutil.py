@@ -50,3 +50,29 @@ def coerce_quaternion(tensor):
         return tensor
     else:
         return pyquaternion.Quaternion(*tensor)
+
+def upper_triangle_to_covariance(upper_triangle):
+    # check it's a triangular number and calculate the size of the matrix
+    n = int(np.sqrt(8*len(upper_triangle) + 1) / 2 - 1)
+    if n*(n+1)//2 != len(upper_triangle):
+        raise ValueError("The number of elements in the upper triangle does not correspond to a triangular number")
+    cov = np.zeros((n, n))
+    idx = 0
+    for i in range(n):
+        for j in range(i, n):
+            cov[i, j] = upper_triangle[idx]
+            cov[j, i] = upper_triangle[idx]
+            idx += 1
+    return cov
+
+def covariance_to_upper_triangle(covariance):
+    n = covariance.shape[0]
+    upper_triangle = np.zeros(n*(n+1)//2)
+    idx = 0
+    for i in range(n):
+        for j in range(i, n):
+            upper_triangle[idx] = covariance[i, j]
+            if not np.isclose(covariance[i, j], covariance[j, i]):
+                raise ValueError("Covariance matrix is not symmetric")
+            idx += 1
+    return upper_triangle
