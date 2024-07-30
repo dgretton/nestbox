@@ -1,7 +1,7 @@
 import numpy as np
-from coordsystem import CameraObserver, PointTrackerObserver, coerce_numpy
-from measurement import NormalMeasurement
-from numutil import transform_points, coerce_numpy
+from nestbox.coordsystem import CameraObserver, PointTrackerObserver, coerce_numpy
+from nestbox.measurement import NormalMeasurement
+from nestbox.numutil import transform_points, coerce_numpy
 from pyquaternion import Quaternion
 
 def transform_points_zipped(origin, quaternion, x, y, z):
@@ -143,7 +143,7 @@ class Visualizer:
 
         # Plot the observers and show measurements as ellipsoids.
         for coord_sys, origin, orientation in self.aligner.iterate_coordinate_systems():
-            for feature_id, meas in coord_sys.measurements.items():
+            for feature_id, meas in coord_sys.measurements_map().items():
                 if isinstance(meas, NormalMeasurement):
                     mean, covariance = meas.get_sample()
                     self.plot_covariance_ellipsoid(f"coordinate system {coord_sys} measurement {feature_id} ellipsoid", mean, covariance, parent_coord_sys=coord_sys.name, color=(0, 1, 1), opacity=.2)

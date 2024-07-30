@@ -1,11 +1,20 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Nestbox Visualizer</title>
+    <title>Nestbox 3D Visualization (Desktop)</title>
+    <link rel="stylesheet" type="text/css" href="../ui-core/css/style.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "../libs/three/three.module.js",
+            "three/addons/": "../libs/three/addons/"
+        }
+    }
+    </script>
 </head>
 <body>
-    <h1>Nestbox Visualizer</h1>
-    <div id="visualizer-container"></div>
-    <script src="renderer.js"></script>
+    <!-- ... -->
+    <script type="module" src="../ui-core/js/app.js"></script>
+    <script type="module" src="renderer.js"></script>
 </body>
 </html>

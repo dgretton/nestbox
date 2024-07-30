@@ -1,13 +1,34 @@
 import json
-from flask import Flask, render_template
+from flask import Flask, render_template, send_from_directory
 from flask_socketio import SocketIO, emit
 import redis
 import threading
+import os
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app)
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+
+# Project structure:
+# /
+# ├── ui-core/
+# ├── visualizer/
+# │   └── flaskapp/
+# │       └── app.py (this file)
+# 
+# └── nestbox/
+
+ui_core_dir = os.path.abspath(os.path.join(app.root_path, '..', '..', 'ui-core'))
+libs_dir = os.path.abspath(os.path.join(app.root_path, '..', '..', 'libs'))
+
+@app.route('/ui-core/<path:filename>')
+def ui_core_files(filename):
+    return send_from_directory(ui_core_dir, filename)
+
+@app.route('/libs/<path:filename>')
+def lib_files(filename):
+    return send_from_directory(libs_dir, filename)
 
 @app.route('/')
 def index():

@@ -1,19 +1,21 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <title>3D Visualization</title>
-    <link rel="stylesheet" type="text/css" href="/static/css/style.css">
-    <script type="importmap">
-    {
-        "imports": {
-            "three": "./static/js/three/three.module.js",
-            "three/addons/": "./static/js/three/addons/"
-        }
-    }
-    </script>
-    <script src="/static/js/socket.io.min.js"></script>
-    <script type="module" src="/static/js/app.js"></script>
-</head>
+    <html>
+        <head>
+            <title>Nestbox 3D Visualization</title>
+            <link rel="stylesheet" type="text/css" href="/ui-core/css/style.css">
+            <script type="importmap">
+            {
+                "imports": {
+                    "three": "/libs/three/three.module.js",
+                    "three/addons/": "/libs/three/addons/"
+                }
+            }
+            </script>
+            <script src="/libs/socket.io/socket.io.min.js"></script>
+            <script type="module" src="/ui-core/js/app.js"></script>
+            <script type="module" src="/static/js/web-app.js"></script>
+        </head>
 <body>
     <div id="menu">
         <div id="hamburger" onclick="toggleMenu()">☰</div>
