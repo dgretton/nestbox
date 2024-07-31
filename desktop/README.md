@@ -1,6 +1,6 @@
-# Nestbox Visualization
+# Nestbox UI and Visualization
 
-This directory contains the desktop application for Nestbox visualization. The visualization components are structured to be shared between a web-based version and an Electron-based desktop application.
+This directory contains the desktop application for Nestbox config, monitoring and visualization. The visualization and UI components are structured to be shared between a web-based version and an Electron-based desktop application.
 
 ## Project Structure
 
