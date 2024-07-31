@@ -2,4 +2,7 @@ torch>=1.13.1
 numpy>=1.19.4
 protobuf>=4.24.4
 PyYAML>=5.4.1
-fastapi
+Flask>=2.1.2
+Flask-RESTful>=0.3.10
+Flask-SocketIO==5.3.6
+redis>=5.0.4
