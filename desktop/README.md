@@ -88,11 +88,20 @@ initVisualization();
 
 // Add Electron-specific code here
 ```
-7. Update package.json to include the main and renderer scripts:
+7. Update package.json to include the main script: (example from the Electron Quick Start)
 ```json
 {
+  "name": "my-electron-app",
+  "version": "1.0.0",
+  "description": "Hello World!",
+  "main": "main.js",
   "scripts": {
     "start": "electron ."
+  },
+  "author": "Jane Doe",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "23.1.3"
   }
 }
 ```
