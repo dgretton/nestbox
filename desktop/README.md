@@ -13,12 +13,37 @@ This directory contains the desktop application for Nestbox visualization. The v
     - `static/`: Static files for the web app.
     - `templates/`: HTML templates for the web app.
 
+## Setup
+
+1. Ensure you have Python installed. 3.7 has been used for development but newer versions should work.
+2. Optionally, create a virtual environment:
+```bash
+cd ./python
+python -m venv venv
+# or
+virtualenv venv
+source venv/bin/activate
+# on windows:
+venv\Scripts\activate
+```
+3. Install the required packages:
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+4. If you want to test-run the aligner process to see visuals in the app, you will need to install redis:
+```bash
+brew install redis # on mac
+sudo apt-get install redis-server # on linux
+```
+On windows you can download the installer from the redis website: https://redis.io/download
+
 ## Running the Flask App
 
 To run the web-based visualization:
 
-1. Ensure you have Python and Flask installed.
-2. Navigate to the `visualizer/flaskapp` directory.
+1. Ensure you have Python and Flask installed (see Setup above, confirm with `pip freeze`).
+2. Navigate to the `/visualizer/flaskapp` directory.
 3. Run the Flask app:
 ```bash
 python app.py
@@ -29,21 +54,12 @@ python app.py
 
 To run the aligner:
 
-1. Ensure you have Python installed.
-2. Optionally, create a virtual environment:
+1. Ensure Redis is installed (see Setup above).
+2. Make sure Redis is running on your machine. In a separate terminal run the following command:
 ```bash
-python -m venv venv
-# or
-virtualenv venv
-source venv/bin/activate
-# on windows:
-venv\Scripts\activate
+redis-server
 ```
-3. Navigate to the `python` directory and install the required packages:
-```bash
-pip install -r requirements.txt
-```
-4. Run the aligner:
+3. While the Flask app is running, open another new terminal and run the following command:
 ```bash
 python nestbox/test_aligner.py
 ```
