@@ -1,6 +1,6 @@
 import nestbox
-from sim import SimEnvironment, RigidObject
-from coordsystem import CoordinateSystem
+from nestbox.sim import SimEnvironment, RigidObject
+from nestbox.coordsystem import CoordinateSystem
 from protos import MeasurementSet
 
 # a truly awful workaround where I make a sim environment, a coordinate system, add observers to it, place it in the environment, and then measure points from the perspective of the observers, just so I can go grab the measurements lists from the coordinate systems and send them over the api
@@ -32,6 +32,8 @@ def get_measurements(coord_sys_name):
 
 def get_measurement_set(coord_sys_name):
     measurements = get_measurements(coord_sys_name)
+    print(measurements)
+    exit()
     return MeasurementSet(samples=measurements)
 
 def measurement_set_request(coord_sys_name):
@@ -44,6 +46,7 @@ def measurement_set_request(coord_sys_name):
 if __name__ == '__main__':
     nestbox.create_coordinate_system('cs1')
     nestbox.create_coordinate_system('cs2')
+    get_measurement_set('cs1')
     cs1_point = [1, 2, 3]
     cs2_point = nestbox.from_cs('cs1').to_cs('cs2').transform(cs1_point)
     print(f'Point in cs1: {cs1_point}. Point in cs2: {cs2_point}')

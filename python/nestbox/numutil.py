@@ -51,11 +51,13 @@ def coerce_quaternion(tensor):
     else:
         return pyquaternion.Quaternion(*tensor)
 
+trinums = {n*(n+1)//2:n for n in range(100)}
+maxtrinum = max(trinums)
 def upper_triangle_to_covariance(upper_triangle):
-    # check it's a triangular number and calculate the size of the matrix
-    n = int(np.sqrt(8*len(upper_triangle) + 1) / 2 - 1)
-    if n*(n+1)//2 != len(upper_triangle):
-        raise ValueError("The number of elements in the upper triangle does not correspond to a triangular number")
+    upper_triangle = coerce_numpy(upper_triangle)
+    if len(upper_triangle) not in trinums or len(upper_triangle) > maxtrinum:
+        raise ValueError(f"Length of upper triangle must be a triangular number less than {maxtrinum}. Got {len(upper_triangle)}")
+    n = trinums[len(upper_triangle)]
     cov = np.zeros((n, n))
     idx = 0
     for i in range(n):
@@ -66,6 +68,7 @@ def upper_triangle_to_covariance(upper_triangle):
     return cov
 
 def covariance_to_upper_triangle(covariance):
+    covariance = coerce_numpy(covariance)
     n = covariance.shape[0]
     upper_triangle = np.zeros(n*(n+1)//2)
     idx = 0

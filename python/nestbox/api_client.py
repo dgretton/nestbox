@@ -50,7 +50,10 @@ class NestboxAPIClient:
         
         # Split the response into headers and body
         headers, body = response.split('\r\n\r\n', 1)
+        print(f"API client received body from create_coordinate_system: {body}")
         
+        if not body.strip():
+            raise RuntimeError("Empty body received from create_coordinate_system")
         # Parse the JSON body
         json_response = json.loads(body)
         
@@ -70,9 +73,30 @@ class NestboxAPIClient:
         response = conn.receive().decode('utf-8')
         if not response.startswith('HTTP/1.1 20'):
             raise RuntimeError(f"Failed to name coordinate system: {response}")
+    
+    def add_normal_measurement(self, feature, cs, mean, covariance, dimensions, is_homogeneous):
+        endpoint = f"/coordsys/{cs}/measurement"
+        body = json.dumps({
+            "type": "NormalMeasurement",
+            "feature": feature,
+            "mean": mean,
+            "covariance": covariance,
+            "dimensions": dimensions,
+            "is_homogeneous": is_homogeneous})
+        http_request = self._http_request(endpoint, "POST", body)
+
+        conn = self._get_connection()
+        conn.send(http_request.encode('utf-8'))
         
-    def add_measurements(self, cs_guid, measurements):
-        endpoint = f"/coordsys/{cs_guid}/measurements"
+        response = conn.receive().decode('utf-8')
+        if not response.startswith('HTTP/1.1 20'):
+            raise RuntimeError(f"Failed to add measurement: {response}")
+        
+        headers, body = response.split('\r\n\r\n', 1)
+        return json 
+
+    def add_measurements(self, cs, measurements):
+        endpoint = f"/coordsys/{cs}/measurements"
         body = json.dumps({"measurements": measurements})
         http_request = self._http_request(endpoint, "POST", body)
 
@@ -86,11 +110,66 @@ class NestboxAPIClient:
         headers, body = response.split('\r\n\r\n', 1)
         return json.loads(body)
 
-    def add_twig(self, cs_guid, twig):
-        pass
+    def start_alignment(self):
+        endpoint = "/alignment"
+        body = json.dumps({"action": "start"})
+        http_request = self._http_request(endpoint, "POST", body)
 
-    def start_alignment(self, cs_guids):
-        return self.daemon.handle_alignment_request(cs_guids)
+        conn = self._get_connection()
+        conn.send(http_request.encode('utf-8'))
+        
+        response = conn.receive().decode('utf-8')
+        if not response.startswith('HTTP/1.1 20'):
+            raise RuntimeError(f"Failed to start alignment: {response}")
+        
+        headers, body = response.split('\r\n\r\n', 1)
+        return json.loads(body)
+
+    # Stream methods
+    def create_stream(self, config):
+        endpoint = "/stream"
+        body = json.dumps(config)
+        http_request = self._http_request(endpoint, "POST", body)
+
+        conn = self._get_connection()
+        conn.send(http_request.encode('utf-8'))
+
+        response = conn.receive().decode('utf-8')
+        if not response.startswith('HTTP/1.1 20'):
+            raise RuntimeError(f"Failed to create stream: {response}")
+        
+        headers, body = response.split('\r\n\r\n', 1)
+        return json.loads(body)
+    
+    def send_twig(self, twig_data):
+        endpoint = f"/twig"
+        body = json.dumps(twig_data)
+        http_request = self._http_request(endpoint, "POST", body)
+
+        conn = self._get_connection()
+        conn.send(http_request.encode('utf-8'))
+
+        response = conn.receive().decode('utf-8')
+        if not response.startswith('HTTP/1.1 20'):
+            raise RuntimeError(f"Failed to send twig: {response}")
+        
+        headers, body = response.split('\r\n\r\n', 1)
+        return json.loads(body)
+
+    def set_router(self, stream_id, config):
+        endpoint = f"/stream/{stream_id}/router"
+        body = json.dumps(config)
+        http_request = self._http_request(endpoint, "POST", body)
+
+        conn = self._get_connection()
+        conn.send(http_request.encode('utf-8'))
+
+        response = conn.receive().decode('utf-8')
+        if not response.startswith('HTTP/1.1 20'):
+            raise RuntimeError(f"Failed to create router: {response}")
+        
+        headers, body = response.split('\r\n\r\n', 1)
+        return json.loads(body)
 
     def close(self):
         self._connection.disconnect()

@@ -1,6 +1,6 @@
 import pyquaternion
 import numpy as np
-from numutil import transform_points, inverse_transform_points, coerce_numpy, coerce_quaternion
+from nestbox.numutil import transform_points, inverse_transform_points, coerce_numpy, coerce_quaternion
 
 class RigidObject: # a rigid object in the environment coordinate system. This is a "cheater" sim-only object that knows its own position and orientation; no coordinate systems should know these details.
     instance_counter = 0

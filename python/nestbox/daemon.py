@@ -1,7 +1,12 @@
 from nestbox.interfaces import PeerDiscoveryInterface, ConnectionInterface, DatabaseInterface, AlignerClientInterface
 from nestbox.daemon_local_aligner_client import DaemonLocalAlignerClient
+from nestbox.protos import Twig, MeasurementSet
+from nestbox.numutil import coerce_numpy
 import uuid
 import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 class NestboxDaemon:
     _instance = None
@@ -16,29 +21,31 @@ class NestboxDaemon:
         self.peer_discovery_client = self.initialize_peer_discovery_client()
         assert isinstance(self.peer_discovery_client, PeerDiscoveryInterface)
         self.database_client = self.initialize_database_client()
-        assert isinstance(self.database_client, DatabaseInterface)
+        assert isinstance(self.database_client, DatabaseInterface) 
         self.aligner_client = self.initialize_aligner_client()
         assert isinstance(self.aligner_client, AlignerClientInterface)
         self.peer_connections = {}
         self.coordsys_names = CSNames()
+        self.loop = asyncio.get_event_loop()
+        self.executor = ThreadPoolExecutor()
 
     def initialize_peer_discovery_client(self):
         # Check if peer discovery process is running
         if not self.is_peer_discovery_client_running():
             self.launch_peer_discovery_client()
-        return PeerDiscoveryClientImplementation(self.config['peer_discovery'])
+        return PeerDiscoveryClientImplementation(self.config['peer_discovery']) # TODO: will be instantiated by a factory, explicit class will not be present
     
     def is_peer_discovery_client_running(self):
         return True  # Placeholder
 
     def initialize_database_client(self):
-        return DatabaseClientImplementation(self.config['database'])
+        return DatabaseClientImplementation(self.config['database']) # TODO: will be instantiated by a factory, explicit class will not be present
     
     def is_database_client_running(self):
         return True
 
     def initialize_aligner_client(self):
-        return DaemonLocalAlignerClient(self.config['aligner'])
+        return DaemonLocalAlignerClient(self.config['aligner']) # TODO: will be instantiated by a factory, explicit class will not be present
     
     def is_aligner_client_running(self):
         return True
@@ -51,37 +58,150 @@ class NestboxDaemon:
                 self.peer_connections[peer.id] = connection
 
     def create_coordsys(self):
-        #new guid
-        cs_guid = str(uuid.uuid4())
-        #add to aligner
-        blocker = [True, None]
-        def unblock(guid):
-            blocker[0] = False
-            blocker[1] = guid
-        self.aligner_client.create_coordinate_system(cs_guid, callback=unblock)
-        print("Waiting for alignment client to create coordinate system")
-        while blocker[0]:
-            time.sleep(0.02)
-        print("Coordinate system created, unblocked.")
-        return blocker[1]
+            print("Creating coordinate system")
+            cs_guid = str(uuid.uuid4())
+            print(f"Coordinate system GUID: {cs_guid}")
+            future = self.executor.submit(self.aligner_client.create_coordinate_system, cs_guid)
+            print("Coordinate system created")
+            result = future.result()
+            print(f"Result: {result}")
+            return result
 
     def name_coordsys(self, cs_guid, cs_name):
-        try:
-            self.coordsys_names.set_name(cs_guid, cs_name)
-        except ValueError as e:
-            return False
-        return True
+        future = self.executor.submit(self.coordsys_names.set_name, cs_guid, cs_name)
+        return future.result()
+
+    def add_measurement(self, cs, measurement):
+        cs_guid = self.resolve_cs_name(cs)
+        return self.add_measurements(cs_guid, [measurement])
     
-    def add_measurements(self, cs_guid, measurements):
-        blocker = [True, None]
-        def unblock(success):
-            blocker[0] = False
-            blocker[1] = success
-        self.aligner_client.add_measurements(cs_guid, measurements, callback=unblock)
-        while blocker[0]:
-            time.sleep(0.02)
-        if not blocker[1]:
-            raise RuntimeError("Failed to add measurements")
+    def add_measurements(self, cs, measurements):
+        cs_guid = self.resolve_cs_name(cs)
+        future = self.executor.submit(self.aligner_client.add_measurements, cs_guid, measurements)
+        return future.result()
+    
+    def start_aligner(self):
+        future = self.executor.submit(self.aligner_client.start_alignment)
+        return future.result()
+
+    def add_measurements_convoluted(self, cs, measurements):
+        cs_guid = self.resolve_cs_name(cs)
+        stream_id = str(uuid.uuid4())
+        samples = []
+        router_meas_configs = []
+        dimensions = None
+        is_homog = None
+        for i, meas in enumerate(measurements):
+            if meas['type'] == 'NormalMeasurement':
+                given_dims = meas['dimensions']
+                # if dimensions is already defined and the new measurement has different dimensions, raise an error
+                if given_dims is not None:
+                    if dimensions and not all(dim == given_dims[i] for i, dim in enumerate(dimensions)):
+                        raise ValueError("All measurements added at the same time must have the same dimensions at the moment")
+                    dimensions = given_dims
+                # same for homogeneity
+                given_homog = meas['is_homogeneous']
+                if given_homog is not None:
+                    if is_homog and not all(homog == given_homog[i] for i, homog in enumerate(is_homog)):
+                        raise ValueError("All measurements added at the same time must have the same homogeneity at the moment")
+                    is_homog = given_homog
+                samples.append((coerce_numpy(meas['mean']), coerce_numpy(meas['covariance'])))
+                router_meas_configs.append({
+                    "type": meas['type'],
+                    "feature_uri": meas['feature'],
+                    "sample_pointer": {
+                        "set": 0,
+                        "sample": i
+                    },
+                    "clear_key": meas['feature']
+                })
+            else:
+                raise ValueError(f"Unsupported measurement type: {meas['type']}")
+        if dimensions is None:
+            raise ValueError("No dimensions provided")
+        if is_homog is None:
+            raise ValueError("No is_homogenous flags provided")
+        meas_set = MeasurementSet(samples, dimensions, is_homog)
+        twig = Twig(stream_id, cs_guid, [meas_set])
+        # add a router for a stream, then pack the measurements into a twig with that stream and send it to the aligner
+        # Ssample routing configuration:
+        # routing_info = {
+        #     "stream_id": "test_stream",
+        #     "measurements": [
+        #         {
+        #             "type": "normal",
+        #             "feature_uri": "nestbox:feature/tag/features/point/feature1/position",
+        #             "sample_pointer": {
+        #                 "set": 0,
+        #                 "sample": 0
+        #             },
+        #             "clear_key": "nestbox:feature/tag/features/point"
+        #         },
+        #         {
+        #             "type": "normal",
+        #             "feature_uri": "nestbox:feature/tag/features/point/feature2/position",
+        #             "sample_pointer": {
+        #                 "set": 0,
+        #                 "sample": 1
+        #             },
+        #             "clear_key": "nestbox:feature/tag/features/point"
+        #         },
+        #         {
+        #             "type": "normal",
+        #             "feature_uri": "nestbox:feature/tag/features/point/feature3/position",
+        #             "sample_pointer": {
+        #                 "set": 0,
+        #                 "sample": 2
+        #             },
+        #             "clear_key": "nestbox:feature/tag/features/point"
+        #         },
+        #         {
+        #             "type": "normal",
+        #             "feature_uri": "nestbox:feature/tag/features/point/feature4/position",
+        #             "sample_pointer": {
+        #                 "set": 1,
+        #                 "sample": 0
+        #             },
+        #             "clear_key": "nestbox:feature/tag/features/point"
+        #         },
+        #         {
+        #             "type": "normal",
+        #             "feature_uri": "nestbox:feature/tag/features/point/feature5/position",
+        #             "sample_pointer": {
+        #                 "set": 1,
+        #                 "sample": 1
+        #             },
+        #             "clear_key": "nestbox:feature/tag/features/point"
+        #         },
+        #         {
+        #             "type": "normal",
+        #             "feature_uri": "nestbox:feature/tag/features/point/feature6/position",
+        #             "sample_pointer": {
+        #                 "set": 1,
+        #                 "sample": 2
+        #             },
+        #             "clear_key": "nestbox:feature/tag/features/point"
+        #         }
+        #     ]
+        # }
+        routing_info = {
+            "stream_id": stream_id,
+            "measurements": router_meas_configs
+        }
+        print('Daemon: routing info is:')
+        print(routing_info)
+        try:
+            print(f'Daemon: twig bytes are {twig.to_bytes()}')
+        except Exception as e:
+            print(f"Error converting twig to bytes: {str(e)}")
+        def add_router_and_process_twig():
+            print(f"Daemon: adding router for stream {stream_id}")
+            self.aligner_client.set_router(stream_id, routing_info)
+            print(f"Daemon: added router for stream {stream_id}")
+            self.aligner_client.send_twig(twig)
+            print(f"Daemon: processed twig for stream {stream_id}")
+        future = self.executor.submit(add_router_and_process_twig)
+        return future.result()
 
     def handle_coordsys_request(self, cs_guids):
         # pseudocode
@@ -104,6 +224,15 @@ class NestboxDaemon:
     def request_alignment_data(self, connection, cs_guids):
         # Use the PeerDiscoveryAPI to request data from a peer
         pass
+
+    def resolve_cs_name(self, cs):
+        try:
+            cs_guid = self.coordsys_names.get_guid(cs)
+            if cs_guid is not None:
+                return cs_guid
+        except KeyError:
+            pass
+        return cs
 
     def process_request(self, request):
         # Example request processing logic
@@ -167,8 +296,41 @@ class DatabaseClientImplementation(DatabaseInterface):
         pass
     def get_alignment_result(self):
         pass
-    def get_feature_file(self):
-        pass
+    def get_feature_file(self, *args): # TODO: placeholder
+        return (
+        """<feature-definition xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:noNamespaceSchemaLocation="feature_schema.xsd">
+        <feature-type name="Hand" multiple="true">
+            <description>Hand tracking feature</description>
+            <root-pose>
+            <position dimensions="XYZ">
+                <allowed-measurements>
+                <measurement-type>NormalMeasurement</measurement-type>
+                <measurement-type>OptionsMeasurement</measurement-type>
+                </allowed-measurements>
+                <default-measurement>NormalMeasurement</default-measurement>
+            </position>
+            <orientation dimensions="IJK">
+                <allowed-measurements>
+                <measurement-type>NormalMeasurement</measurement-type>
+                </allowed-measurements>
+                <default-measurement>NormalMeasurement</default-measurement>
+            </orientation>
+            </root-pose>
+            <features>
+            <feature-type name="TrackingPoint" multiple="true">
+                <position dimensions="XYZ">
+                <allowed-measurements>
+                    <measurement-type>NormalMeasurement</measurement-type>
+                    <measurement-type>CollectionMeasurement</measurement-type>
+                </allowed-measurements>
+                <default-measurement>NormalMeasurement</default-measurement>
+                </position>
+            </feature-type>
+            </features>
+        </feature-type>
+        </feature-definition>"""
+        )
     def get_feature_file_metadata(self):
         pass
     def get_measurement(self):

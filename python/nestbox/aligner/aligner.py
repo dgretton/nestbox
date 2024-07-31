@@ -24,6 +24,17 @@ class Aligner:
         self.coordinate_systems.append(coord_sys)
         self.name_map[coord_sys.name] = coord_sys
 
+    def get_coordinate_system(self, name):
+        return self.name_map[name]
+    
+    def delete_coordinate_system(self, name):
+        cs = self.get_coordinate_system(name)
+        idx = self.coordinate_systems.index(cs)
+        self.coordinate_systems.pop(idx)
+        self.name_map.pop(name)
+        self.current_origins.pop(idx)
+        self.current_orientations.pop(idx)
+
     def reset_coordinate_system(self, coord_sys, set_origin, set_orientation):
         for i, cs in enumerate(self.coordinate_systems):
             if cs is coord_sys:
@@ -62,17 +73,6 @@ class Aligner:
             if coord_sys.stale:
                 return True
         return False
-    
-    def get_coord_sys(self, name):
-        return self.name_map[name]
-    
-    def delete_coord_sys(self, name):
-        cs = self.get_coord_sys(name)
-        idx = self.coordinate_systems.index(cs)
-        self.coordinate_systems.pop(idx)
-        self.name_map.pop(name)
-        self.current_origins.pop(idx)
-        self.current_orientations.pop(idx)
 
     def build_model(self):
         pass

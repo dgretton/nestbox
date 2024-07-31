@@ -1,9 +1,9 @@
 from nestbox.coordsystem import PointTrackerObserver
 from nestbox.aligner import AdamAligner, GradientAligner
-from sim import SimEnvironment, RigidObject
-from run_optimizer import run_optimizer
-from measurement import NormalMeasurement
-from feature import to_feature
+from nestbox.sim import SimEnvironment, RigidObject
+from nestbox.run_optimizer import run_optimizer
+from nestbox.measurement import NormalMeasurement
+from nestbox.feature import to_feature
 from visualizer import Visualizer
 import numpy as np
 import pyquaternion
@@ -11,8 +11,8 @@ import sys
 import redis
 import json
 import threading
-from test_aligner import init_random_coordinate_system
-from test_conn import receive_full_message
+from nestbox.test_aligner import init_random_coordinate_system
+from nestbox.test_conn import receive_full_message
 import socket
 import sys
 import time

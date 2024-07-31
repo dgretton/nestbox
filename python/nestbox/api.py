@@ -1,5 +1,6 @@
 from .api_client import NestboxAPIClient
 from .config import DAEMON_CONN_CONFIG
+from .protos import Dim
 import numpy as np
 
 _client = None
@@ -20,8 +21,19 @@ def from_cs(cs_name):
 def create_coordinate_system(name=None):
     return _get_client().create_coordinate_system(name)
 
+def add_measurement(feature, cs, mean, covariance, dimensions=None, is_homogeneous=None):
+    if dimensions is None:
+        dimensions = Dim.all[:len(mean)]
+    if is_homogeneous is None:
+        is_homogeneous = [False] * len(mean)
+    print(f"Adding measurement with dimensions {dimensions} and is_homogeneous {is_homogeneous}")
+    return _get_client().add_normal_measurement(feature, cs, mean, covariance, dimensions, is_homogeneous)
+
 def add_measurements(cs_guid, measurements):
     return _get_client().add_measurements(cs_guid, measurements)
+
+def start_alignment():
+    return _get_client().start_alignment()
 
 # Other main module API functions...
 

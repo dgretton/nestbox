@@ -5,6 +5,7 @@ from ..numutil import transform_point, rotate_covariance, coerce_numpy
 from .aligner import Aligner
 from ..coordsystem import NormalMeasurement
 
+
 class TorchAligner(Aligner):
 
     def transform_points(self, origin, orientation, points):
@@ -129,6 +130,19 @@ class GradientAligner(TorchAligner):
         self.origins = torch.tensor(coerce_numpy(self.current_origins), dtype=torch.float32, requires_grad=True)
         self.orientations = torch.tensor(coerce_numpy(self.current_orientations), dtype=torch.float32, requires_grad=True)
 
+        if self.loss is None: # on the first run,
+        # print out all coordinate systems, their measurements, and initial parameters
+            for i, coord_sys in enumerate(self.coordinate_systems):
+                print(f'Coordinate system {i} named "{coord_sys.name}":')
+                print(f"    Origin: {self.origins[i]}")
+                print(f"    Orientation: {self.orientations[i]}")
+                if not coord_sys.measurements:
+                    print("    No measurements")
+                for feature_id, meas in coord_sys.measurements.items():
+                    print(f"        Feature {feature_id}:")
+                    print(f"        Mean: {meas.mean}")
+                    print(f"        Covariance: {meas.covariance}")
+
         # sampling stage
         # pick a random coordinate system
         # for every measurement in that coordinate system, sample a point from its distribution
@@ -144,13 +158,16 @@ class GradientAligner(TorchAligner):
         for feature_id, meas in chosen_coord_sys.measurements.items():
             if feature_id not in all_other_feature_ids:
                 continue
-            if not isinstance(meas, NormalMeasurement):
-                raise ValueError("All measurements must be of type NormalMeasurement at the moment")
-            chosen_mean, chosen_cov = meas.get_sample()
-            chosen_mean = torch.tensor(transform_point(self.origins[random_idx], self.orientations[random_idx], chosen_mean), dtype=torch.float32)
-            chosen_cov = torch.tensor(rotate_covariance(self.orientations[random_idx], chosen_cov), dtype=torch.float32)
-            temp_sampled_points.append(torch.distributions.MultivariateNormal(chosen_mean, chosen_cov).sample())
-            temp_sampled_features.append(feature_id)
+            if isinstance(meas, NormalMeasurement):
+                chosen_mean = meas.mean
+                chosen_cov = meas.covariance
+                chosen_mean = torch.tensor(transform_point(self.origins[random_idx], self.orientations[random_idx], chosen_mean), dtype=torch.float32)
+                chosen_cov = torch.tensor(rotate_covariance(self.orientations[random_idx], chosen_cov), dtype=torch.float32)
+                temp_sampled_points.append(torch.distributions.MultivariateNormal(chosen_mean, chosen_cov).sample())
+                temp_sampled_features.append(feature_id)
+            # elif isinstance(meas, ...): etc.
+            else:
+                ValueError("All measurements must be of type NormalMeasurement at the moment")
 
         temp_sampled_points = torch.stack(temp_sampled_points)
         self.sampled_features = temp_sampled_features[:] # save for inspection
@@ -180,12 +197,16 @@ class GradientAligner(TorchAligner):
             for j, feature_id in enumerate(temp_sampled_features):
                 if feature_id not in coord_sys.measurements:
                     continue
-                mean, covariance = coord_sys.measurements[feature_id].get_sample()
-                mean = torch.tensor(mean, dtype=torch.float32, requires_grad=True)
-                covariance = torch.tensor(covariance, dtype=torch.float32, requires_grad=True)
-                global_space_mean = self.transform_point(origin, orientation, mean)
-                global_space_covariance = self.rotate_covariance(orientation, covariance)
-                coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_sampled_points[j], global_space_mean, global_space_covariance))
+                meas = coord_sys.measurements[feature_id]
+                if isinstance(meas, NormalMeasurement):
+                    mean = torch.tensor(meas.mean, dtype=torch.float32, requires_grad=True)
+                    covariance = torch.tensor(meas.covariance, dtype=torch.float32, requires_grad=True)
+                    global_space_mean = self.transform_point(origin, orientation, mean)
+                    global_space_covariance = self.rotate_covariance(orientation, covariance)
+                    coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_sampled_points[j], global_space_mean, global_space_covariance))
+                # elif isinstance(meas, ...): etc.
+                else:
+                    ValueError("All measurements must be of type NormalMeasurement at the moment")
 
         self.loss = -torch.sum(torch.stack(coord_sys_log_likelihoods), dtype=torch.float32)
         self.loss.retain_grad()

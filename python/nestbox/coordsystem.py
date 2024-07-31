@@ -1,8 +1,8 @@
 import pyquaternion
 import numpy as np
 from nestbox.numutil import transform_point, transform_points, rotate_covariance, coerce_numpy
-from feature import to_feature
-from measurement import Measurement, NormalMeasurement
+from nestbox.feature import to_feature
+from nestbox.measurement import Measurement, NormalMeasurement
 
 class CoordinateSystem:
     names = set()
@@ -25,11 +25,25 @@ class CoordinateSystem:
     def add_local_observer(self, observer):
         self.observers.append(observer)
 
+    def measurements_map(self):
+        return self.measurements
+
     def update_measurements(self, measurements):
+        print(f"Coordinate system {self.name} updating measurements")
+        if not measurements:
+            print("No measurements given.")
+        for m in measurements:
+            print(f"Adding measurement {m} for feature {m.feature}")
         if not all(isinstance(m, Measurement) for m in measurements):
             raise ValueError("All measurements must be Measurement objects")
         self.set_stale() # mark that the model will now need to be rebuilt before more optimization can happen
         self.measurements.update({m.feature: m for m in measurements})
+
+    def clear_measurements(self, clear_key=None):
+        self.measurements = {feature: measurement for feature, measurement in self.measurements.items() if not measurement.clear_key.startswith(clear_key)}
+
+    def clear_all_measurements(self):
+        self.measurements = {}
 
     def set_stale(self, stale=True):
         self.stale = stale

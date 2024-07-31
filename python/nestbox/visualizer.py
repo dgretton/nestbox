@@ -45,7 +45,7 @@ class VisualElement:
         return {'name': self.name, 'type': self.type, 'parent':self.parent_name, 'properties': make_serializable(self.properties)}
 
 class Visualizer:
-    def __init__(self, aligner, environment):
+    def __init__(self, aligner, environment=None):
         self.aligner = aligner
         self.environment = environment
         self._vis_elements = {}
@@ -137,9 +137,10 @@ class Visualizer:
 
     def draw(self):
         # Plot the rigid objects at their actual positions in the environment
-        for rigidobject in self.environment.rigidobjects:
-            self.plot_point_collection(f"rigidobject {rigidobject}", rigidobject.get_points(), marker_size=0.005)
-            self.plot_cube(f"rigidobject {rigidobject} box", rigidobject.origin, rigidobject.orientation)
+        if self.environment:
+            for rigidobject in self.environment.rigidobjects:
+                self.plot_point_collection(f"rigidobject {rigidobject}", rigidobject.get_points(), marker_size=0.005)
+                self.plot_cube(f"rigidobject {rigidobject} box", rigidobject.origin, rigidobject.orientation)
 
         # Plot the observers and show measurements as ellipsoids.
         for coord_sys, origin, orientation in self.aligner.iterate_coordinate_systems():

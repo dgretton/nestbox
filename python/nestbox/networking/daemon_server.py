@@ -3,15 +3,18 @@ from nestbox.interfaces import ServerInterface, ServerConnectionInterface
 from nestbox.daemon import global_daemon
 from nestbox.networking import ConnectionManager, ConnectionConfig
 import threading
-import traceback
 from enum import Enum
+from typing import List
 from dataclasses import dataclass, asdict
 from functools import wraps
 from flask import Flask, request, jsonify
 from flask_restful import Api, Resource
+from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 api = Api(app)
+
+executor = ThreadPoolExecutor(max_workers=10)
 
 class MessageType(Enum):
     CREATE_CS = "create_cs"
@@ -26,63 +29,110 @@ class NameCSRequest:
     cs_guid: str
     name: str
 
-def validate_json(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        try:
-            if not request.is_json:
-                return jsonify({"error": "Missing JSON in request"}), 400
-            return f(*args, **kwargs)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
-    return decorated_function
+@dataclass
+class Measurement:
+    type: str
+    feature: str
+    mean: List[float]
+    covariance: List[List[float]]
+    dimensions: List[int]
+    is_homogeneous: List[bool]
+
+@dataclass
+class AddMeasurementsRequest:
+    cs_guid: str
+    measurements: List[Measurement]
+
+@dataclass
+class StartStopAlignmentRequest:
+    action: str
+
+def validate_json(data_class=None):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            try:
+                if not request.is_json:
+                    return jsonify({"error": "Missing JSON in request"}), 400
+                request_data = request.get_json()
+                if data_class:
+                    try:
+                        request_data = data_class(**request_data)
+                    except Exception:
+                        return jsonify({"error": "Invalid JSON data"}), 400
+                return f(*args, **kwargs)
+            except Exception as e:
+                return jsonify({"error": str(e)}), 400
+        return decorated_function
+    return decorator
 
 class CreateCoordSysResource(Resource):
-    @validate_json
+    @validate_json()
     def post(self):
-        print("Received create CS POST request")
+        print("Received create_coordsys request")
         cs_guid = global_daemon.create_coordsys()
-        print(f"Created CS with GUID: {cs_guid}")
+        print(f"CreateCoordSysResource: Created CS with GUID: {cs_guid}")
         if not cs_guid:
             return {"error": "Failed to create coordinate system"}, 500
-        return asdict(CreateCSResponse(cs_guid=cs_guid)), 201
+        return {"cs_guid": cs_guid}, 201
 
 class NameCoordSysResource(Resource):
-    @validate_json
+    @validate_json()
     def put(self, cs_guid):
-        print(f"Received name CS PUT request for GUID: {cs_guid}")
         data = request.get_json()
-        
-        if 'name' not in data:
-            return {"error": "Missing 'name' in request body"}, 400
-        
         name = data['name']
         try:
             global_daemon.name_coordsys(cs_guid, name)
             return {"message": "Coordinate system named successfully"}, 200
         except Exception as e:
-            print(f"Error naming coordinate system: {str(e)}")
-            return {"error": "Failed to name coordinate system"}, 500
-        
+            return {"error": f"Failed to name coordinate system: {str(e)}"}, 500
+
+class AddMeasurementResource(Resource):
+    @validate_json()
+    def post(self, cs_guid):
+        measurement = request.get_json()
+        try:
+            global_daemon.add_measurement(cs_guid, measurement)
+            return {"message": "Measurement added successfully"}, 200
+        except Exception as e:
+            return {"error": f"Failed to add measurement: {str(e)}"}, 500
+
 class AddMeasurementsResource(Resource):
-    @validate_json
+    @validate_json()
     def post(self, cs_guid):
         data = request.get_json()
         measurements = data.get('measurements')
-        
         if not measurements:
             return {"error": "Missing 'measurements' in request body"}, 400
-        
         try:
             global_daemon.add_measurements(cs_guid, measurements)
             return {"message": "Measurements added successfully"}, 200
         except Exception as e:
-            print(f"Error adding measurements: {str(e)}")
-            return {"error": "Failed to add measurements"}, 500
+            return {"error": f"Failed to add measurements: {str(e)}"}, 500
+
+class StartStopAlignmentResource(Resource):
+    @validate_json()
+    def post(self):
+        data = request.get_json()
+        if 'action' in data:
+            starting = data['action']
+            if starting not in ['start', 'stop']:
+                return {"error": f"Invalid value for 'action' field: {starting}"}, 400
+            if starting == 'start':
+                global_daemon.start_aligner()
+                return {"message": "Alignment started"}, 200
+            else:
+                #global_daemon.stop_alignment()
+                raise NotImplementedError("Stopping alignment is not yet implemented")
+                #return {"message": "Alignment stopped"}, 200
+        else:
+            return {"error": "Missing 'start' field in request body"}, 400
 
 api.add_resource(CreateCoordSysResource, '/coordsys')
 api.add_resource(NameCoordSysResource, '/coordsys/<string:cs_guid>/name')
+api.add_resource(AddMeasurementResource, '/coordsys/<string:cs_guid>/measurement')
 api.add_resource(AddMeasurementsResource, '/coordsys/<string:cs_guid>/measurements')
+api.add_resource(StartStopAlignmentResource, '/alignment')
 
 # class DaemonServer(ServerInterface):
 #     def __init__(self, config, daemon):

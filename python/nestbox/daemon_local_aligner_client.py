@@ -7,10 +7,13 @@ import time
 from typing import Dict, Any, List
 from nestbox.interfaces import AlignerClientInterface, ConnectionInterface, AlignmentResultInterface, ServerInterface, ServerConnectionInterface
 from nestbox.networking import QueueConnectionPair
-from nestbox.aligner import AdamAligner
+from nestbox.aligner import AlignerManager
+from nestbox.measurement import NormalMeasurement
+from nestbox.feature import StrFeatureKey
 from nestbox.coordsystem import CoordinateSystem
 from nestbox.run_optimizer import run_optimizer
 from nestbox.protos import Twig
+from nestbox.visualizer import Visualizer
 
 class AsyncResponseHandler:
     def __init__(self, connection):
@@ -86,11 +89,65 @@ class _DaemonLocalAlignerServer(ServerInterface):
     def __init__(self, server_connection):
         assert isinstance(server_connection, ServerConnectionInterface)
         self._server_connection = server_connection
-        self.aligner = AdamAligner() # TODO: based on config
-        def _run_aligner():
-            run_optimizer(self.aligner)
-        self.aligner_thread = threading.Thread(target=_run_aligner, daemon=True)
+        self.aligner_manager = AlignerManager({'type': 'adam', 'beta1': 0.9, 'beta2': 0.999, 'epsilon': 1e-8})
+        self.aligner_thread = threading.Thread(target=self._run_aligner, daemon=True)
+        #self.aligner_thread.start() #TODO: remove, should wait until receiving aligner start request
     
+    @property
+    def aligner(self):
+        return self.aligner_manager.get_aligner()
+    
+    def _run_aligner(self):
+        # Connect to Redis
+        import redis
+        redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+        # check if connected
+        try:
+            redis_client.ping()
+        except redis.exceptions.ConnectionError:
+            print("Redis server not running. Start Redis server with 'redis-server'.")
+
+        # Function to publish optimization updates
+        def publish_updates(channel, state):
+            # state: a dictionary containing the current state of the optimization
+            try:
+                redis_client.publish(channel, json.dumps(state))
+            except redis.exceptions.ConnectionError:
+                pass
+
+        def redis_listener():
+            pubsub = redis_client.pubsub()
+            pubsub.subscribe(['optimization_update', 'pin_command'])
+            print("Redis listener started")
+
+            for message in pubsub.listen():
+                if message['type'] == 'message':
+                    # if message['channel'].decode('utf-8') == 'optimization_update':
+                    #     data = json.loads(message['data'])
+                    #     # Handle optimization update
+                    if message['channel'].decode('utf-8') == 'pin_command':
+                        pin_data = json.loads(message['data'])
+                        pin_index = pin_data['pin']
+                        print(f"Received pin command for coordinate system {pin_index}")
+                        self.aligner.pin(pin_index)
+
+        # Start the listener in a separate thread
+        threading.Thread(target=redis_listener, daemon=True).start()
+
+        # Visualizer
+        visualizer = Visualizer(self.aligner)
+
+        def callback(aligner):
+            for _, origin, orientation in aligner.iterate_coordinate_systems():
+                    print(f"current coordinate system position: {origin}")
+                    print(f"current coordinate system orientation: {orientation}")
+            # Send optimization state to Redis
+            visualizer.draw()
+            state = visualizer.state()
+            publish_updates('optimization_update', state)
+        
+        run_optimizer(self.aligner, callback=callback)
+
     def start(self):
         self._server_thread = threading.Thread(target=self._serve, daemon=True)
         self._server_thread.start()
@@ -142,19 +199,40 @@ class _DaemonLocalAlignerServer(ServerInterface):
             self.aligner.add_coordinate_system(coord_sys)
             print('HOLY SH*T WE ACTUALLY INITIALIZED A COORDINATE SYSTEM ALL THE WAAAAY')
             success()
+        elif request_type == 'add_measurements':
+            cs_guid = request['cs_guid']
+            measurements_data = request['measurements']
+            measurements = []
+            for meas_data in measurements_data:
+                if meas_data['type'] == 'NormalMeasurement':
+                    feature = StrFeatureKey(meas_data['feature'])
+                    mean = meas_data['mean']
+                    covariance = meas_data['covariance']
+                    dimensions = meas_data.get('dimensions')
+                    is_homogeneous = meas_data.get('is_homogeneous')
+                    measurements.append(NormalMeasurement(feature, mean, covariance, dimensions, clear_key=None))
+                else:
+                    raise ValueError(f"Unsupported measurement type: {meas_data['type']}")
+            self.aligner_manager.update_measurements(cs_guid, measurements)
+            success()
         elif request_type == 'add_twig':
             #data in bytes is base64 encoded in field twig_data
             data64 = request['twig_data']
             data = base64.b64decode(data64)
-            twig = Twig(data)
+            twig = Twig().load_bytes(data)
             print(f"Received Twig: {twig}")
+            self.aligner_manager.process_twig(twig)
             success()
-        elif request_type == 'add_measurement_set':
-            pass
+        elif request_type == 'set_router':
+            stream_id = request['stream_id']
+            router_config = request['router_config']
+            self.aligner_manager.add_router(stream_id, router_config)
+            success()
         elif request_type == 'start_alignment':
             if not self.aligner_thread.is_alive():
                 print("Starting aligner thread")
                 self.aligner_thread.start()
+            success()
         elif request_type == 'cancel_alignment':
             pass
         elif request_type == 'alignment_status':
@@ -173,6 +251,7 @@ class _DaemonLocalAlignerServer(ServerInterface):
             pass
         elif request_type == 'unpin':
             pass
+        print(f"Sending response from process_data: {response}")
         return json.dumps(response).encode()
 
 
@@ -251,39 +330,41 @@ class DaemonLocalAlignerClient(AlignerClientInterface):
 
     def set_alignment_parameters(self, params: Dict[str, Any]) -> None:
         ({"type": "set_alignment_params", "params": params})
-        
 
-    def create_coordinate_system(self, guid: str, callback: callable) -> None:
-        self.handler.send_request("create_cs", {"cs_guid": guid}, callback=callback)
-        
+    def create_coordinate_system(self, guid: str) -> str:
+        return self._wait_for_callback_result('create_cs', {"cs_guid": guid})
 
     def delete_coordinate_system(self, cs_guid: str) -> str:
         ({"type": "delete_cs", "cs_guid": cs_guid})
 
-    def add_measurements(self, cs_guid: str, measurements: List[Dict[str, Any]], callback: callable) -> None:
-        self.handler.send_request("add_measurement_set", {"cs_guid": cs_guid, "measurements": measurements}, callback=callback)
+    def add_measurements(self, cs_guid: str, measurements: List[Dict[str, Any]]) -> str:
+        return self._wait_for_callback_result('add_measurements', {"cs_guid": cs_guid, "measurements": measurements})
+
+    def set_router(self, stream_id: str, router_config: Dict[str, Any]) -> str:
+        return self._wait_for_callback_result('set_router', {"stream_id": stream_id, "router_config": router_config})
+    
+    def send_twig(self, twig: Twig) -> str:
+        twig_data = twig.to_bytes()
+        print(f"Serialized twig data in send_twig: {twig_data}")
+        return self._wait_for_callback_result('add_twig', {"twig_data": base64.b64encode(twig_data).decode()})
 
     def pin_coordinate_system(self, cs_guid: str) -> str:
         ({"type": "pin", "cs_guid": cs_guid})
-        
 
     def unpin_coordinate_system(self) -> str:
         ({"type": "unpin"})
-        
 
-    def get_response(self, request_id: str, timeout: float = None) -> Dict[str, Any]:
-        start_time = time.time()
-        while True:
-            try:
-                response = self.result_queue.get(timeout=0.1)
-                if response['request_id'] == request_id:
-                    return response
-                else:
-                    # Put the response back if it's not the one we're looking for
-                    self.result_queue.put(response)
-            except queue.Empty:
-                if timeout is not None and time.time() - start_time > timeout:
-                    raise TimeoutError(f"No response received for request {request_id} within {timeout} seconds")
+    def _wait_for_callback_result(self, *args, **kwargs):
+        result = {'value': None}
+        event = threading.Event()
+
+        def callback(response):
+            result['value'] = response
+            event.set()
+
+        self.handler.send_request(*args, **kwargs, callback=callback)
+        event.wait()
+        return result['value']
 
     # Implement ClientInterface methods
     def connect(self, connection):

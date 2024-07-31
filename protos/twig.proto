@@ -14,6 +14,9 @@ enum Dimension {
     VX = 5;       // Velocity in X
     VY = 6;       // Velocity in Y
     VZ = 7;       // Velocity in Z
+    I = 8;        // X basis vector
+    J = 9;        // Y basis vector
+    K = 10;       // Z basis vector
 }
 
 
@@ -31,14 +34,50 @@ message TransformationMatrix {
 }
 
 message MeasurementSet {
-    repeated Dimension dimensions = 1;  // List of dimensions that this measurement regards
-    repeated Sample samples = 2;
-    TransformationMatrix transform = 3;
+    // A set of samples of measurements of features TODO: this should really be SampleSet or SampleArray/List. That'll take a lot of renaming though. an after-demo activity
+    // Example: all of the points found in a single image from a camera in UV coordinates
+    // Example: a LIDAR point cloud
+    // Example: the positions of all robot, hand or skeleton joints at a moment in time
+    // Example: a trajectory of a moving object over a time interval
+    // Advanced example: IJK values specifying rotation matrices from a pose estimator at different times, packed three at a time, each triple having the same time value
+    // Advanced example: as above, but two ambiguous orientations are possible, so six values are packed together, three for each orientation
+    // Metadata about how to unpack these into Measurement objects of the correct types is specified when setting up a twig stream.
+    repeated Dimension dimensions = 1;  // List of dimensions that this measurement regards, not the samples' dimensions, those are anything/undefined. Length equals number of columns in the transformation matrix
+    repeated Sample samples = 2;  // List of samples, each sample has a mean and covariance matrix, sample length equals number of rows in the transformation matrix
+    TransformationMatrix transform = 3; // e.g. to convert from world to camera coordinates, identity if true world-space measurements
     repeated bool isHomogeneous = 4;  // Indicates which dimensions of the measurement are in homogeneous coordinates
 }
+
+// All this type of stuff will go in the twig stream initialization message TODO: remove when done
+// enum MeasurementType {
+//     NormalMeasurement = 0;
+//     OptionsMeasurement = 1;
+//     CollectionMeasurement = 2;
+//     OrderedMeasurement = 3;
+// }
+//
+// message SamplePointer {
+//     int32 measurementIndex = 1;  // Index of the measurement set
+//     int32 sampleIndex = 2;  // Index of the sample in the measurement set
+//     // TODO: maybe add int32 runLength = 3 for repeated samples
+// }
+//
+// message SampleGroup {
+//     repeated SamplePointer samples = 1;
+// }
+//
+// message MeasurementMetadata {
+//   repeated Measurement = 1;
+// }
+//
+// message Measurement {
+//   int32 type = 1;  // MeasurementType enum value
+//   repeated SamplePointer samples = 2;  // Pointers to samples that constitute this measurement
+// }
 
 message Twig {
     string coordSysId = 1;  // Unique identifier for the coordinate system
     string streamId = 2;  // Unique identifier for a stream of related measurements
     repeated MeasurementSet measurements = 3;
+//    MeasurementMetadata metadata = 4;
 }
