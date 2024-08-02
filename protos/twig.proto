@@ -6,17 +6,16 @@ option csharp_namespace = "Nestbox.Protos";  // This line tells protoc the names
 
 
 enum Dimension {
-    UNKNOWN = 0;  // Default value, representing an unspecified dimension
-    X = 1;
-    Y = 2;
-    Z = 3;
-    T = 4;        // Time
-    VX = 5;       // Velocity in X
-    VY = 6;       // Velocity in Y
-    VZ = 7;       // Velocity in Z
-    I = 8;        // X basis vector
-    J = 9;        // Y basis vector
-    K = 10;       // Z basis vector
+    X = 0;        // Meters
+    Y = 1;        // Meters
+    Z = 2;        // Meters
+    T = 3;        // Time in seconds
+    VX = 4;       // Velocity in X
+    VY = 5;       // Velocity in Y
+    VZ = 6;       // Velocity in Z
+    I = 7;        // X basis vector, unitless
+    J = 8;        // Y basis vector, unitless
+    K = 9;        // Z basis vector, unitless
 }
 
 
