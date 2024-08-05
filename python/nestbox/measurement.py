@@ -1,5 +1,5 @@
 from nestbox.feature import FeatureKey
-from nestbox import Dim
+from nestbox.protos import Dim
 import numpy as np
 
 class MeasurementType:

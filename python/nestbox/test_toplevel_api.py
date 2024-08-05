@@ -1,3 +1,4 @@
+import json
 import nestbox
 from nestbox.sim import SimEnvironment, RigidObject
 from nestbox.coordsystem import CoordinateSystem
@@ -44,9 +45,6 @@ def measurement_set_request(coord_sys_name):
 
 
 if __name__ == '__main__':
-    nestbox.create_coordinate_system('cs1')
-    nestbox.create_coordinate_system('cs2')
-    get_measurement_set('cs1')
-    cs1_point = [1, 2, 3]
-    cs2_point = nestbox.from_cs('cs1').to_cs('cs2').transform(cs1_point)
+    cs1_point = [2, 3, 4]
+    cs2_point = nestbox.from_cs('cs1').to_cs('cs2').convert(cs1_point)
     print(f'Point in cs1: {cs1_point}. Point in cs2: {cs2_point}')

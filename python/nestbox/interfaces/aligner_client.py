@@ -7,12 +7,7 @@ from .client_server import ClientInterface
 class AlignmentResultInterface:
     @property
     @abstractmethod
-    def alignment_id(self) -> str:
-        pass
-
-    @property
-    @abstractmethod
-    def timestamp(self) -> float:
+    def timestamp(self) -> str:
         pass
 
     @property
@@ -33,6 +28,20 @@ class AlignmentResultInterface:
     @property
     @abstractmethod
     def quaternion(self) -> List[float]:
+        pass
+
+    @property
+    @abstractmethod
+    def delta_velocity(self) -> List[float]:
+        pass
+
+    @abstractmethod
+    def to_json(self) -> Dict[str, Any]:
+        pass
+
+    @classmethod
+    @abstractmethod
+    def from_json(cls, data: Dict[str, Any]) -> 'AlignmentResultInterface':
         pass
 
 
@@ -76,8 +85,8 @@ class AlignerClientInterface(ClientInterface, PubSubInterface):
         pass
 
     @abstractmethod
-    def get_latest_alignments(self, cs_guids: List[str]) -> Dict[str, AlignmentResultInterface]:
-        """Get the latest alignment result for the given list of coordinate system guids."""
+    def get_basis_change_transform(self, source_cs_guid: str, target_cs_guid: str) -> AlignmentResultInterface:
+        """Get the transform to express vectors in one coordinate system in the basis of another."""
         pass
 
     @abstractmethod
