@@ -1,3 +1,4 @@
+# TODO: convert all float32 to float64
 import torch
 import numpy as np
 from torch.autograd import profiler
@@ -120,13 +121,14 @@ class TorchAligner(Aligner):
 
 class GradientAligner(TorchAligner):
 
-    def build_model(self, visualization=False):
+    def __init__(self, *args, learning_rate=0.01, **kwargs):
+        self.learning_rate = learning_rate
+        super().__init__(*args, **kwargs)
 
+    def _build_model(self):
         #if not self.stale(): TODO put back probably, once we know how to reset gradients without rebuilding the model
         #    return
-
         # print('BUILDING MODEL')
-
         self.origins = torch.tensor(coerce_numpy(self.current_origins), dtype=torch.float32, requires_grad=True)
         self.orientations = torch.tensor(coerce_numpy(self.current_orientations), dtype=torch.float32, requires_grad=True)
 
@@ -147,8 +149,12 @@ class GradientAligner(TorchAligner):
         # pick a random coordinate system
         # for every measurement in that coordinate system, sample a point from its distribution
 
-        random_idx = np.random.randint(0, len(self.coordinate_systems))
-        chosen_coord_sys = self.coordinate_systems[random_idx]
+        css_with_measurements = [cs for cs in self.coordinate_systems if cs.measurements]
+        if not css_with_measurements:
+            self.loss = torch.tensor(0.0, dtype=torch.float32, requires_grad=True)
+            return
+        chosen_coord_sys = np.random.choice(css_with_measurements)
+        random_idx = self.coordinate_systems.index(chosen_coord_sys)
 
         all_other_feature_ids = set(k for cs in self.coordinate_systems if cs is not chosen_coord_sys for k in cs.measurements.keys())
 
@@ -177,6 +183,8 @@ class GradientAligner(TorchAligner):
         coord_sys_log_likelihoods = []
 
         for i, coord_sys in enumerate(self.coordinate_systems):
+            if not coord_sys.measurements:
+                continue
             #if i == random_idx:
             #    continue
             # all of these steps should happen in the pytorch framework so that we can compute gradients later
@@ -214,7 +222,8 @@ class GradientAligner(TorchAligner):
         for coord_sys in self.coordinate_systems:
             coord_sys.set_stale(False)
 
-        if visualization:
+        graph_visualization = False
+        if graph_visualization:
             #render the computation graph
             import torchviz
             dot = torchviz.make_dot(self.loss)
@@ -223,7 +232,7 @@ class GradientAligner(TorchAligner):
             # save it to an image
             dot.render('model_graph', format='png')
 
-    def gradient_descent_step(self, learning_rate=0.000001):
+    def _gradient_descent_step(self):
 
         ### Build the model
         profile = False
@@ -262,13 +271,13 @@ class GradientAligner(TorchAligner):
         with torch.no_grad():
             # If the gradients are larger than 1/learning_rate, scale them down
             max_grad = max(torch.abs(self.origins.grad).max(), torch.abs(self.orientations.grad).max())
-            if max_grad > 1/learning_rate:
-                self.origins.grad /= max_grad * learning_rate
-                self.orientations.grad /= max_grad * learning_rate
+            if max_grad > 1/self.learning_rate:
+                self.origins.grad /= max_grad * self.learning_rate
+                self.orientations.grad /= max_grad * self.learning_rate
             self.origins.grad *= self.learning_rate_factor
             self.orientations.grad *= self.learning_rate_factor
-            self.origins -= learning_rate * self.origins.grad
-            self.orientations -= learning_rate * self.orientations.grad * .01
+            self.origins -= self.learning_rate * self.origins.grad
+            self.orientations -= self.learning_rate * self.orientations.grad * .01
             self.origins.grad.zero_()
             self.orientations.grad.zero_()
             # Renormalizing the orientations to maintain them as unit quaternions
@@ -307,23 +316,24 @@ class GradientAligner(TorchAligner):
 
 
 class AdamAligner(GradientAligner):
-    def __init__(self, *args, beta1=0.9, beta2=0.999, epsilon=1e-4, **kwargs):
+    def __init__(self, *args, beta1=0.9, beta2=0.999, epsilon=1e-4, second_moment_scale=1000, **kwargs):
         super().__init__(*args, **kwargs)
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
+        self.second_moment_scale = second_moment_scale
         self.m_t = None  # First moment vector
         self.v_t = None  # Second moment vector
         self.t = 0       # Timestep
 
-    def build_model(self, *args, **kwargs):
-        super().build_model(*args, **kwargs)
+    def _build_model(self, *args, **kwargs):
+        super()._build_model(*args, **kwargs)
         if self.m_t is None:
             self.m_t = {'origins': torch.zeros_like(self.origins), 'orientations': torch.zeros_like(self.orientations)}
         if self.v_t is None:
             self.v_t = {'origins': torch.zeros_like(self.origins), 'orientations': torch.zeros_like(self.orientations)}
 
-    def gradient_descent_step(self, learning_rate=0.1):
+    def _gradient_descent_step(self):
         self.build_model()
         self.loss.backward()
 
@@ -331,12 +341,14 @@ class AdamAligner(GradientAligner):
         with torch.no_grad():
             for param_name in ['origins', 'orientations']:
                 param = getattr(self, param_name)
-                grad = param.grad #* (.0001 if param_name == 'orientations' else 1.0)
+                grad = param.grad
+                if grad is None:
+                    continue
 
                 # Update biased first moment estimate
                 self.m_t[param_name] = self.beta1 * self.m_t[param_name] + (1 - self.beta1) * grad
                 # Update biased second raw moment estimate
-                self.v_t[param_name] = self.beta2 * self.v_t[param_name] + (1 - self.beta2) * (grad ** 2)
+                self.v_t[param_name] = self.beta2 * self.v_t[param_name] + (1 - self.beta2) * (grad ** 2) * self.second_moment_scale
 
                 # Compute bias-corrected first moment estimate
                 m_hat = self.m_t[param_name] / (1 - self.beta1 ** self.t)
@@ -344,7 +356,7 @@ class AdamAligner(GradientAligner):
                 v_hat = self.v_t[param_name] / (1 - self.beta2 ** self.t)
 
                 # Update parameters
-                param -= learning_rate * m_hat / (torch.sqrt(v_hat) + self.epsilon)
+                param -= self.learning_rate * m_hat / (torch.sqrt(v_hat) + self.epsilon)
                 param.grad.zero_()
 
             # Renormalize orientations if necessary
