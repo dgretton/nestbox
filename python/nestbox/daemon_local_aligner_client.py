@@ -89,7 +89,8 @@ class _DaemonLocalAlignerServer(ServerInterface):
     def __init__(self, server_connection):
         assert isinstance(server_connection, ServerConnectionInterface)
         self._server_connection = server_connection
-        self.aligner_manager = AlignerManager({'type': 'adam', 'beta1': 0.9, 'beta2': 0.999, 'epsilon': 1e-8})
+        self.aligner_manager = AlignerManager({'type': 'adam', 'learning_rate': 0.01, 'beta1': 0.9, 'beta2': 0.999, 'epsilon': 1e-8})
+        #self.aligner_manager = AlignerManager({'type': 'gradient', 'learning_rate': 0.01})
         self.aligner_thread = threading.Thread(target=self._run_aligner, daemon=True)
         #self.aligner_thread.start() #TODO: remove, should wait until receiving aligner start request
     
@@ -134,12 +135,15 @@ class _DaemonLocalAlignerServer(ServerInterface):
         # Start the listener in a separate thread
         threading.Thread(target=redis_listener, daemon=True).start()
 
+        self.aligner.clear_empty_coordinate_systems() #TODO: probably not the right long-term behavior
+
         # Visualizer
         visualizer = Visualizer(self.aligner)
 
         def callback(aligner):
             for _, origin, orientation in aligner.iterate_coordinate_systems():
-                    print(f"current coordinate system position: {origin}")
+                    #print(f"current coordinate system position: {origin}")
+                    print(_.name)
                     print(f"current coordinate system orientation: {orientation}")
             # Send optimization state to Redis
             visualizer.draw()
@@ -233,6 +237,15 @@ class _DaemonLocalAlignerServer(ServerInterface):
                 print("Starting aligner thread")
                 self.aligner_thread.start()
             success()
+        elif request_type == 'get_basis_change_transform':
+            source_cs = request['source_cs']
+            target_cs = request['target_cs']
+            print(f'LocalAlignerClient: getting basis change transform from {source_cs} to {target_cs}')
+            transform = self.aligner.get_basis_change_transform(source_cs, target_cs)
+            print(f'Successfully got basis change transform:')
+            print(transform)
+            print(transform.to_json())
+            response.update({"status": "success", "transform": transform.to_json()})
         elif request_type == 'cancel_alignment':
             pass
         elif request_type == 'alignment_status':
@@ -327,6 +340,10 @@ class DaemonLocalAlignerClient(AlignerClientInterface):
     def get_latest_alignments(self, cs_guids: List[str]) -> Dict[str, AlignmentResultInterface]:
         ({"type": "get_latest_alignments", "cs_guids": cs_guids})
         
+    def get_basis_change_transform(self, source_cs_guid: str, target_cs_guid: str) -> Dict[str, Any]:
+        print('LocalAlignerClient: get_basis_change_transform called, sending "get_basis_change_transform" query to aligner\n'
+              f'source guid: {source_cs_guid}, target guid: {target_cs_guid}')
+        return self._wait_for_callback_result('get_basis_change_transform', {"source_cs": source_cs_guid, "target_cs": target_cs_guid})
 
     def set_alignment_parameters(self, params: Dict[str, Any]) -> None:
         ({"type": "set_alignment_params", "params": params})
@@ -403,16 +420,11 @@ class DaemonLocalAlignerClient(AlignerClientInterface):
 
 class DummyAlignmentResult(AlignmentResultInterface):
     def __init__(self, cs_guid):
-        self._alignment_id = f"alignment_{cs_guid}"
         self._timestamp = time.time()
         self._status = "completed"
         self._matrix_transform = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
         self._origin = [0, 0, 0]
         self._quaternion = [1, 0, 0, 0]
-
-    @property
-    def alignment_id(self) -> str:
-        return self._alignment_id
 
     @property
     def timestamp(self) -> float:

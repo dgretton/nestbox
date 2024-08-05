@@ -84,6 +84,13 @@ class NestboxDaemon:
         future = self.executor.submit(self.aligner_client.start_alignment)
         return future.result()
 
+    def get_basis_change_transform(self, source_cs, target_cs):
+        print('Daemon: get_basis_change_transform called.')
+        source_guid = self.resolve_cs_name(source_cs)
+        target_guid = self.resolve_cs_name(target_cs)
+        future = self.executor.submit(self.aligner_client.get_basis_change_transform, source_guid, target_guid)
+        return future.result()['transform']
+
     def add_measurements_convoluted(self, cs, measurements):
         cs_guid = self.resolve_cs_name(cs)
         stream_id = str(uuid.uuid4())

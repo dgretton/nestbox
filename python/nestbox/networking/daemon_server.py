@@ -1,4 +1,4 @@
-#TODO: move to top of module, not in networking submodule
+#TODO: move to top of package, not in networking submodule
 from nestbox.interfaces import ServerInterface, ServerConnectionInterface
 from nestbox.daemon import global_daemon
 from nestbox.networking import ConnectionManager, ConnectionConfig
@@ -89,28 +89,28 @@ class NameCoordSysResource(Resource):
 
 class AddMeasurementResource(Resource):
     @validate_json()
-    def post(self, cs_guid):
+    def post(self, cs):
         measurement = request.get_json()
         try:
-            global_daemon.add_measurement(cs_guid, measurement)
+            global_daemon.add_measurement(cs, measurement)
             return {"message": "Measurement added successfully"}, 200
         except Exception as e:
             return {"error": f"Failed to add measurement: {str(e)}"}, 500
 
 class AddMeasurementsResource(Resource):
     @validate_json()
-    def post(self, cs_guid):
+    def post(self, cs):
         data = request.get_json()
         measurements = data.get('measurements')
         if not measurements:
             return {"error": "Missing 'measurements' in request body"}, 400
         try:
-            global_daemon.add_measurements(cs_guid, measurements)
+            global_daemon.add_measurements(cs, measurements)
             return {"message": "Measurements added successfully"}, 200
         except Exception as e:
             return {"error": f"Failed to add measurements: {str(e)}"}, 500
 
-class StartStopAlignmentResource(Resource):
+class AlignmentActionResource(Resource):
     @validate_json()
     def post(self):
         data = request.get_json()
@@ -120,19 +120,37 @@ class StartStopAlignmentResource(Resource):
                 return {"error": f"Invalid value for 'action' field: {starting}"}, 400
             if starting == 'start':
                 global_daemon.start_aligner()
+                print('AlignmentActionResource: Alignment started successfully')
                 return {"message": "Alignment started"}, 200
             else:
                 #global_daemon.stop_alignment()
                 raise NotImplementedError("Stopping alignment is not yet implemented")
                 #return {"message": "Alignment stopped"}, 200
         else:
-            return {"error": "Missing 'start' field in request body"}, 400
+            return {"error": "Missing 'action' field in request body"}, 400
+
+class GetTransformResource(Resource):
+    #@validate_json()
+    def get(self, relation, source_cs, target_cs):
+        try:
+            print('-- GetTransformResource --')
+            print(f'GetTransformResource: GET called. source_cs: {source_cs}, target_cs: {target_cs}')
+            if relation == 'convert':
+                transform = global_daemon.get_basis_change_transform(source_cs, target_cs)
+            else:
+                return {"error": f"Resource not found: invalid transform relation type: {relation}"}, 404
+            print('Transform received.')
+            print(transform)
+            return transform, 200
+        except Exception as e:
+            return {"error": f"Failed to get transform: {str(e)}"}, 500
 
 api.add_resource(CreateCoordSysResource, '/coordsys')
 api.add_resource(NameCoordSysResource, '/coordsys/<string:cs_guid>/name')
-api.add_resource(AddMeasurementResource, '/coordsys/<string:cs_guid>/measurement')
-api.add_resource(AddMeasurementsResource, '/coordsys/<string:cs_guid>/measurements')
-api.add_resource(StartStopAlignmentResource, '/alignment')
+api.add_resource(AddMeasurementResource, '/coordsys/<string:cs>/measurement')
+api.add_resource(AddMeasurementsResource, '/coordsys/<string:cs>/measurements')
+api.add_resource(AlignmentActionResource, '/alignment')
+api.add_resource(GetTransformResource, '/transforms/<string:relation>/<string:source_cs>/to/<string:target_cs>')
 
 # class DaemonServer(ServerInterface):
 #     def __init__(self, config, daemon):
