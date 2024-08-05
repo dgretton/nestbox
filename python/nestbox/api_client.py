@@ -1,23 +1,21 @@
 from .interfaces import ConnectionConfigInterface
 from .networking import ConnectionManager
+from .aligner import AlignmentResult
 import json
 
 class NestboxAPIClient:
     def __init__(self, connection_config: ConnectionConfigInterface):
         self.connection_config = connection_config
+        self._conn = None
 
     def _get_connection(self):
         # for now, use a new connection each time. connection pool or http keep-alive would help efficiency
-        conn = ConnectionManager.create_connection(self.connection_config.type, self.connection_config)
-        conn.connect()
-        return conn
+        if self._conn and self._conn.is_connected():
+            self._conn.disconnect()
+        self._conn = ConnectionManager.create_connection(self.connection_config.type, self.connection_config)
+        self._conn.connect()
+        return self._conn
 
-    def create_coordinate_system(self, name=None):
-        guid = self._create_coordinate_system()
-        if name:
-            self.name_coordinate_system(guid, name)
-        return guid
-    
     def _http_request(self, endpoint: str, method: str, body: str) -> str:
         assert method in ['GET', 'POST', 'PUT', 'DELETE']
         headers = {
@@ -33,7 +31,20 @@ class NestboxAPIClient:
             http_request += f"{header}: {value}\r\n"
         http_request += f"\r\n{body}"
         return http_request
-    
+
+    def create_coordinate_system(self, name=None):
+        while True: # TODO This is most certainly NOT the right behavior long-term!
+                    # TODO This is just a temporary workaround because create cs keeps returning an empty body randomly
+                    # TODO fix that, then this.
+            try:
+                guid = self._create_coordinate_system()
+                break
+            except Exception as e:
+                print(f"Error creating coordinate system, retrying: {e}")
+        if name:
+            self.name_coordinate_system(guid, name)
+        return guid
+
     def _create_coordinate_system(self):
         endpoint = "/coordsys"
         body = json.dumps({"type": "create_cs"})
@@ -125,6 +136,21 @@ class NestboxAPIClient:
         headers, body = response.split('\r\n\r\n', 1)
         return json.loads(body)
 
+    def get_transform(self, source_cs: str, target_cs: str, relation_type: str='convert') -> AlignmentResult:
+        endpoint = f"/transforms/{relation_type}/{source_cs}/to/{target_cs}"
+        http_request = self._http_request(endpoint, "GET", "")
+
+        conn = self._get_connection()
+        conn.send(http_request.encode('utf-8'))
+
+        response = conn.receive().decode('utf-8')
+        if not response.startswith('HTTP/1.1 20'):
+            raise RuntimeError(f"Failed to get transform: {response}")
+        
+        headers, body = response.split('\r\n\r\n', 1)
+        print(body)
+        return AlignmentResult.from_json(json.loads(body))
+
     # Stream methods
     def create_stream(self, config):
         endpoint = "/stream"
@@ -140,7 +166,7 @@ class NestboxAPIClient:
         
         headers, body = response.split('\r\n\r\n', 1)
         return json.loads(body)
-    
+
     def send_twig(self, twig_data):
         endpoint = f"/twig"
         body = json.dumps(twig_data)
@@ -167,7 +193,7 @@ class NestboxAPIClient:
         response = conn.receive().decode('utf-8')
         if not response.startswith('HTTP/1.1 20'):
             raise RuntimeError(f"Failed to create router: {response}")
-        
+
         headers, body = response.split('\r\n\r\n', 1)
         return json.loads(body)
 
