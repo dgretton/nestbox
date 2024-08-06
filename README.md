@@ -22,7 +22,7 @@ Nestbox is designed to solve the problem of aligning multiple coordinate systems
 
 7. **Visualizer**: A 3D visualization tool for displaying the state of the system, including the alignments of coordinate systems and the measurements of shared features.
 
-8. **Simulator**: A lightweight toolkit for creating mock uncertain measurement data for testing, including an *Environment* and different types of *Observers* like cameras or 3D trackers.
+8. **Simulator**: A lightweight toolkit for creating uncertain measurement data, including an *Environment* and different types of *Observers* like cameras or 3D trackers, useful for setting up known geometry and testing.
 
 
 ## Conceptual Workflow
@@ -39,12 +39,14 @@ Nestbox is designed to solve the problem of aligning multiple coordinate systems
 - `python/`: Contains the core Python implementation of Nestbox.
 - `csharp/`: C# implementation for cross-platform support.
 - `protos/`: Protocol buffer definitions for data structures.
-- `visualizer/`: 3D visualization tools for displaying alignment results.
+- `desktop/`: Desktop application for Nestbox config, monitoring, and visualization.
+- `visualizer/`: Browser-based visualization.
+- `ui-core/`: Shared UI components and 3D visualization tools used by both web and desktop versions.
 - `docs/`: Documentation and notes.
 
 ## Current State
 
-Nestbox is currently in development. The core concepts and structure are in place, but the system is not yet ready for production use. The optimization algorithms, API, and visualization capabilities are being refined and expanded.
+Nestbox is currently in development. The system is not yet ready for production use. The optimization algorithms, API, and visualization capabilities are being refined and expanded.
 
 ## Contributing
 
