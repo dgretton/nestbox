@@ -17,7 +17,7 @@ aligner:
   learning_rate: 0.01
 
 peer_discovery:
-  type: "static"
+  temp_live_data_shim_address: "10.1.20.59:12345"
 
 daemon:
   server_type: "unix_socket"
