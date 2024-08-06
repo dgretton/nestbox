@@ -45,6 +45,7 @@ class ConnectionManager:
         pass
 
     def create_connection(self, config: ConnectionConfig):
+        assert isinstance(config, ConnectionConfig), f"ConnectionManager expected ConnectionConfig, got {type(config)}"
         if config.type == 'tcp':
             return TCPConnection(config.address, config.port)
         elif config.type == 'unix_socket':

@@ -29,7 +29,10 @@ class TCPConnection(ConnectionInterface):
     
     @property
     def connection_info(self):
-        return {'type': 'tcp', 'address': f"{self.host}:{self.port}"}
+        return {'type': 'tcp',
+                'host': self.host,
+                'port': self.port,
+                'address': f"{self.host}:{self.port}"}
     
 
 class TCPServerConnection(ServerConnectionInterface):

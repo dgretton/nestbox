@@ -105,7 +105,9 @@ class AddMeasurementsResource(Resource):
         if not measurements:
             return {"error": "Missing 'measurements' in request body"}, 400
         try:
-            global_daemon.add_measurements(cs, measurements)
+            result = global_daemon.add_measurements(cs, measurements)
+            if result['status'] == 'error':
+                return {"error": f"Failed to add measurements: {result['message']}"}, 500
             return {"message": "Measurements added successfully"}, 200
         except Exception as e:
             return {"error": f"Failed to add measurements: {str(e)}"}, 500
