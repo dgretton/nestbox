@@ -175,6 +175,14 @@ class GradientAligner(TorchAligner):
             else:
                 ValueError("All measurements must be of type NormalMeasurement at the moment")
 
+        if not temp_sampled_points:
+            # indeterminate behavior--in general, sometimes this will return this null-type loss, sometimes it will continue past this point
+            # depending on which coordinate system is chosen and whether it has connections to any others. Not good, will need to revisit.
+            # Keeping for now because sometimes this edge case arises while setting up coordinate systems from multiple sources, if someone
+            # starts the aligner too early.
+            #print(f"No measurements in coordinate system {chosen_coord_sys.name} that are in any other coordinate systems")
+            self.loss = torch.tensor(0.0, dtype=torch.float32, requires_grad=True)
+            return
         temp_sampled_points = torch.stack(temp_sampled_points)
         self.sampled_features = temp_sampled_features[:] # save for inspection
         self.sampled_points = temp_sampled_points.detach().numpy() # save for inspection
@@ -316,12 +324,12 @@ class GradientAligner(TorchAligner):
 
 
 class AdamAligner(GradientAligner):
-    def __init__(self, *args, beta1=0.9, beta2=0.999, epsilon=1e-4, second_moment_scale=1000, **kwargs):
+    def __init__(self, *args, beta1=0.9, beta2=0.999, epsilon=1e-4, temperature=1000, **kwargs):
         super().__init__(*args, **kwargs)
         self.beta1 = beta1
         self.beta2 = beta2
         self.epsilon = epsilon
-        self.second_moment_scale = second_moment_scale
+        self.temperature = temperature
         self.m_t = None  # First moment vector
         self.v_t = None  # Second moment vector
         self.t = 0       # Timestep
@@ -348,7 +356,7 @@ class AdamAligner(GradientAligner):
                 # Update biased first moment estimate
                 self.m_t[param_name] = self.beta1 * self.m_t[param_name] + (1 - self.beta1) * grad
                 # Update biased second raw moment estimate
-                self.v_t[param_name] = self.beta2 * self.v_t[param_name] + (1 - self.beta2) * (grad ** 2) * self.second_moment_scale
+                self.v_t[param_name] = self.beta2 * self.v_t[param_name] + (1 - self.beta2) * (grad ** 2) / self.temperature * 1000
 
                 # Compute bias-corrected first moment estimate
                 m_hat = self.m_t[param_name] / (1 - self.beta1 ** self.t)

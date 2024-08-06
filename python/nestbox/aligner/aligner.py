@@ -30,13 +30,19 @@ class Aligner:
             self.coordinate_systems.append(coord_sys)
             self.name_map[coord_sys.name] = coord_sys
 
-    def get_coordinate_system(self, name):
+    def get_coordinate_system(self, name: str) -> CoordinateSystem:
         with self.lock:
-            return self.name_map[name]
+            cs = self.name_map.get(name)
+            if cs is None:
+                raise ValueError(f"Coordinate system {name} not found in aligner")
+            return cs
 
     def delete_coordinate_system(self, name):
         with self.lock:
-            cs = self.get_coordinate_system(name)
+            try:
+                cs = self.get_coordinate_system(name)
+            except ValueError:
+                return
             idx = self.coordinate_systems.index(cs)
             self.coordinate_systems.pop(idx)
             self.name_map.pop(name)

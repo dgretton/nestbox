@@ -6,7 +6,14 @@ class AlignerManager:
         self.aligner_config = aligner_config
         self.routers = {}  # map of twig stream IDs to sample routers
         self.clear_keys = {}  # map of stream IDs to sets of clear keys
-        self.aligner = None
+        self._aligner = None
+
+    @property
+    def aligner(self):
+        if self._aligner:
+            return self._aligner
+        self._aligner = AlignerFactory().create_aligner(self.aligner_config)
+        return self._aligner
 
     def add_router(self, stream_id, router_config):
         if stream_id in self.routers:
@@ -19,13 +26,16 @@ class AlignerManager:
         # keep clear keys in case the router is added back later
 
     def get_aligner(self):
-        if self.aligner:
-            return self.aligner
-        self.aligner = AlignerFactory().create_aligner(self.aligner_config)
         return self.aligner
-    
+
     def update_measurements(self, coord_sys_id, measurements):
-        self.aligner.get_coordinate_system(coord_sys_id).update_measurements(measurements)
+        try:
+            self.aligner.get_coordinate_system(coord_sys_id).update_measurements(measurements)
+            return
+        except ValueError as e:
+            error_message = str(e)
+            pass
+        raise ValueError(f"Error updating measurements for coordinate system {coord_sys_id}: {error_message}")
 
     def process_twig(self, twig):
         stream_id = twig.stream_id
@@ -35,7 +45,7 @@ class AlignerManager:
             raise ValueError(f"No router found for stream ID: {stream_id}")
 
         router = self.routers[stream_id]
-        
+
         # Clear old measurements based on clear keys
         self._clear_measurements(stream_id, coord_sys_id)
 
