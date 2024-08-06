@@ -21,8 +21,8 @@ class DefaultInstanceID(InstanceIDInterface):
 
 
 class PeerInfo:
-    def __init__(self, id: str, connection: ConnectionInterface, metadata: Dict[str, Any]):
-        self.id = id
+    def __init__(self, instance_id: str, connection: ConnectionInterface, metadata: Dict[str, Any]):
+        self.instance_id = instance_id
         self.connection = connection
         self.metadata = metadata
 
