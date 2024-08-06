@@ -41,6 +41,8 @@ class MeasurementSet:
                 self.covariances.append(coerce_numpy(cov))
         self.means = np.stack(self.means) if self.means else np.array([[]])
         self.covariances = np.stack(self.covariances) if self.covariances else np.array([[[]]])
+        dimensions = list(dimensions) if dimensions else None
+        is_homogeneous = list(is_homogeneous) if is_homogeneous else None
         self._validate_dims(dimensions)
         self._validate_homogeneous(is_homogeneous)
         self.dimensions = dimensions
@@ -53,10 +55,12 @@ class MeasurementSet:
         for sample in twig_ms.samples:
             samples.append((get_proto_mean(sample), get_proto_covariance(sample)))
         meas_set = MeasurementSet(samples=samples)
-        MeasurementSet._validate_dims(twig_ms.dimensions)
-        meas_set.dimensions = twig_ms.dimensions
-        MeasurementSet._validate_homogeneous(twig_ms.isHomogeneous)
-        meas_set.is_homogeneous = twig_ms.isHomogeneous
+        dims = list(twig_ms.dimensions) if twig_ms.dimensions else None
+        MeasurementSet._validate_dims(dims)
+        meas_set.dimensions = dims
+        homog = list(twig_ms.isHomogeneous) if twig_ms.isHomogeneous else None
+        MeasurementSet._validate_homogeneous(homog)
+        meas_set.is_homogeneous = homog
         meas_set.means = np.stack(meas_set.means)
         meas_set.covariances = np.stack(meas_set.covariances)
         meas_set.transform = coerce_numpy(twig_ms.transform.data).reshape(3, 3)
@@ -128,12 +132,14 @@ class MeasurementSet:
 
     @staticmethod
     def _validate_dims(dims):
+        assert dims is None or isinstance(dims, list), f"MeasurementSet dimensions must be a list. Got type {type(dims)}"
         if dims is not None and not all(dim in Dim.all for dim in dims):
             print('MeasurementSet dimensions must be one of {', ', '.join(Dim.all), '}. Got {', dims, '}')
             raise ValueError(f"MeasurementSet dimensions must be one of {', '.join(Dim.all)}. Got {dims}")
 
     @staticmethod
     def _validate_homogeneous(is_homogeneous):
+        assert is_homogeneous is None or isinstance(is_homogeneous, list), f"MeasurementSet is_homogeneous must be a list. Got type {type(is_homogeneous)}"
         if is_homogeneous is not None and not all(isinstance(homogeneous, bool) for homogeneous in is_homogeneous):
             raise ValueError(f"MeasurementSet is_homogeneous must be a list of booleans. Got {is_homogeneous}")
 
