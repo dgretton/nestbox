@@ -27,7 +27,19 @@ class PeerInfo:
         self.metadata = metadata
 
 
-class PeerDiscoveryClientInterface(ClientInterface):
+class PeerDiscoveryListenerInterface(ABC):
+    @abstractmethod
+    def on_peer_discovered(self, callback: Callable[[PeerInfo], None]) -> None:
+        """Register a callback for when a new peer is discovered."""
+        pass
+
+    @abstractmethod
+    def on_peer_lost(self, callback: Callable[[str], None]) -> None:
+        """Register a callback for when a peer is no longer available."""
+        pass
+
+
+class PeerDiscoveryClientInterface(ClientInterface, PeerDiscoveryListenerInterface):
     def __init__(self, instance_id: Optional[InstanceIDInterface] = None):
         self._instance_id = instance_id or self._create_default_instance_id()
 
@@ -67,23 +79,6 @@ class PeerDiscoveryClientInterface(ClientInterface):
     def unregister_self(self) -> None:
         """Unregister this instance from being discoverable."""
         pass
-
-
-class PeerDiscoveryListenerInterface(ABC):
-    @abstractmethod
-    def on_peer_discovered(self, callback: Callable[[PeerInfo], None]) -> None:
-        """Register a callback for when a new peer is discovered."""
-        pass
-
-    @abstractmethod
-    def on_peer_lost(self, callback: Callable[[str], None]) -> None:
-        """Register a callback for when a peer is no longer available."""
-        pass
-
-
-class PeerDiscoveryInterface(PeerDiscoveryClientInterface, PeerDiscoveryListenerInterface):
-    """A comprehensive interface combining discovery and listening."""
-    pass
 
 
 # Usage, imagining that the LocalNetworkPeerDiscovery class is implemented elsewhere:

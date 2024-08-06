@@ -1,6 +1,4 @@
 import xml.etree.ElementTree as ET
-import re
-from urllib.parse import urlparse, unquote
 
 def to_feature(feature_id):
     if isinstance(feature_id, FeatureKey):
@@ -8,6 +6,7 @@ def to_feature(feature_id):
     if not isinstance(feature_id, str):
         raise ValueError(f"FeatureKey ID to make a simple StrFeatureKey with feature() must be a string. Got {feature_id}")
     return StrFeatureKey(feature_id)
+
 
 class FeatureKey:
     def __init__(self):

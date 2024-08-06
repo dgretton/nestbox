@@ -1,4 +1,4 @@
-from nestbox.interfaces import PeerDiscoveryInterface, ConnectionInterface, DatabaseInterface, AlignerClientInterface
+from nestbox.interfaces import PeerDiscoveryClientInterface, ConnectionInterface, DatabaseInterface, AlignerClientInterface, PeerInfo
 from nestbox.daemon_local_aligner_client import DaemonLocalAlignerClient
 from nestbox.protos import Twig, MeasurementSet
 from nestbox.numutil import coerce_numpy
@@ -19,7 +19,7 @@ class NestboxDaemon:
     def initialize(self, config): # must be called before using the daemon
         self.config = config
         self.peer_discovery_client = self.initialize_peer_discovery_client()
-        assert isinstance(self.peer_discovery_client, PeerDiscoveryInterface)
+        assert isinstance(self.peer_discovery_client, PeerDiscoveryClientInterface)
         self.database_client = self.initialize_database_client()
         assert isinstance(self.database_client, DatabaseInterface) 
         self.aligner_client = self.initialize_aligner_client()
@@ -255,7 +255,11 @@ class NestboxDaemon:
         # self.peer_discovery_client.start_discovery()
 
 
-class PeerDiscoveryClientImplementation(PeerDiscoveryInterface):
+class PeerInfoImplementation(PeerInfo):
+    pass
+
+
+class PeerDiscoveryClientImplementation(PeerDiscoveryClientInterface):
     def get_peers(self):
         # For now, return a static list of peer info
         return [ConnectionConfig('localhost', 12345, 'tcp', 'peer1'), ConnectionConfig('localhost', 12346, 'tcp', 'peer2')]
