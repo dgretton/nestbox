@@ -89,7 +89,7 @@ class _DaemonLocalAlignerServer(ServerInterface):
     def __init__(self, server_connection):
         assert isinstance(server_connection, ServerConnectionInterface)
         self._server_connection = server_connection
-        self.aligner_manager = AlignerManager({'type': 'adam', 'learning_rate': 0.01, 'beta1': 0.9, 'beta2': 0.999, 'epsilon': 1e-8})
+        self.aligner_manager = AlignerManager({'type': 'adam', 'learning_rate': 0.01, 'beta1': 0.9, 'beta2': 0.999, 'epsilon': 1e-8, 'temperature': 20})
         #self.aligner_manager = AlignerManager({'type': 'gradient', 'learning_rate': 0.01})
         self.aligner_thread = threading.Thread(target=self._run_aligner, daemon=True)
         #self.aligner_thread.start() #TODO: remove, should wait until receiving aligner start request
@@ -135,16 +135,14 @@ class _DaemonLocalAlignerServer(ServerInterface):
         # Start the listener in a separate thread
         threading.Thread(target=redis_listener, daemon=True).start()
 
-        self.aligner.clear_empty_coordinate_systems() #TODO: probably not the right long-term behavior
-
         # Visualizer
         visualizer = Visualizer(self.aligner)
 
         def callback(aligner):
             for _, origin, orientation in aligner.iterate_coordinate_systems():
-                    #print(f"current coordinate system position: {origin}")
                     print(_.name)
-                    print(f"current coordinate system orientation: {orientation}")
+                    print(f"    current coordinate system position: {origin}")
+                    print(f"    current coordinate system orientation: {orientation}")
             # Send optimization state to Redis
             visualizer.draw()
             state = visualizer.state()
@@ -217,8 +215,11 @@ class _DaemonLocalAlignerServer(ServerInterface):
                     measurements.append(NormalMeasurement(feature, mean, covariance, dimensions, clear_key=None))
                 else:
                     raise ValueError(f"Unsupported measurement type: {meas_data['type']}")
-            self.aligner_manager.update_measurements(cs_guid, measurements)
-            success()
+            try:
+                self.aligner_manager.update_measurements(cs_guid, measurements)
+                success()
+            except ValueError as e:
+                response.update({"status": "error", "message": str(e)})
         elif request_type == 'add_twig':
             #data in bytes is base64 encoded in field twig_data
             data64 = request['twig_data']
