@@ -1,7 +1,9 @@
 from nestbox.interfaces import PeerDiscoveryClientInterface, ConnectionInterface, DatabaseInterface, AlignerClientInterface, PeerInfo
 from nestbox.daemon_local_aligner_client import DaemonLocalAlignerClient
+from nestbox.networking import ConnectionManager, ConnectionConfig
 from nestbox.protos import Twig, MeasurementSet
 from nestbox.numutil import coerce_numpy
+from nestbox.live_data_shim import LiveDataShim
 import uuid
 import time
 import asyncio
@@ -28,11 +30,15 @@ class NestboxDaemon:
         self.coordsys_names = CSNames()
         self.loop = asyncio.get_event_loop()
         self.executor = ThreadPoolExecutor()
+        self.temp_live_data_shim = self.initialize_live_data_shim()
+
+    def initialize_live_data_shim(self):
+        peer_info = self.peer_discovery_client.get_peers()[0]
+        shim = LiveDataShim(peer_info.connection)
+        shim.start()
+        return shim
 
     def initialize_peer_discovery_client(self):
-        # Check if peer discovery process is running
-        if not self.is_peer_discovery_client_running():
-            self.launch_peer_discovery_client()
         return PeerDiscoveryClientImplementation(self.config['peer_discovery']) # TODO: will be instantiated by a factory, explicit class will not be present
     
     def is_peer_discovery_client_running(self):
@@ -233,12 +239,14 @@ class NestboxDaemon:
         pass
 
     def resolve_cs_name(self, cs):
+        print(f"Resolving coordinate system name: {cs}")
         try:
             cs_guid = self.coordsys_names.get_guid(cs)
             if cs_guid is not None:
                 return cs_guid
         except KeyError:
             pass
+        print(f"Coordinate system name not found, returning {cs} unchanged")
         return cs
 
     def process_request(self, request):
@@ -255,14 +263,17 @@ class NestboxDaemon:
         # self.peer_discovery_client.start_discovery()
 
 
-class PeerInfoImplementation(PeerInfo):
-    pass
-
-
 class PeerDiscoveryClientImplementation(PeerDiscoveryClientInterface):
+    def __init__(self, config):
+        self.config = config
+
     def get_peers(self):
         # For now, return a static list of peer info
-        return [ConnectionConfig('localhost', 12345, 'tcp', 'peer1'), ConnectionConfig('localhost', 12346, 'tcp', 'peer2')]
+        live_data_shim_host, live_data_shim_port = self.config['temp_live_data_shim_address'].split(':')
+        conn_1 = ConnectionManager().create_connection(ConnectionConfig('tcp', address=live_data_shim_host, port=int(live_data_shim_port)))
+        conn_2 = ConnectionManager().create_connection(ConnectionConfig('tcp', address="localhost", port=12345))
+        return [PeerInfo("nb-peer1", conn_1, {}), PeerInfo("nb-peer2", conn_2, {})]
+
     def connect(self):
         pass
     def connection(self):
