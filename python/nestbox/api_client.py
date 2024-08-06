@@ -1,210 +1,152 @@
 from .interfaces import ConnectionConfigInterface
 from .networking import ConnectionManager
 from .aligner import AlignmentResult
+import requests
+from requests.adapters import BaseAdapter
+from requests.models import Response
+from urllib.parse import unquote, quote
 import json
+import time
 
 class NestboxAPIClient:
     def __init__(self, connection_config: ConnectionConfigInterface):
-        self.connection_config = connection_config
-        self._conn = None
+        self.session = requests.Session()
+        adapter = CustomConnectionAdapter(ConnectionManager, connection_config)
+        self.session.mount('http+unix://', adapter)
 
-    def _get_connection(self):
-        # for now, use a new connection each time. connection pool or http keep-alive would help efficiency
-        if self._conn and self._conn.is_connected():
-            self._conn.disconnect()
-        self._conn = ConnectionManager.create_connection(self.connection_config.type, self.connection_config)
-        self._conn.connect()
-        return self._conn
-
-    def _http_request(self, endpoint: str, method: str, body: str) -> str:
-        assert method in ['GET', 'POST', 'PUT', 'DELETE']
-        headers = {
-            "Content-Type": "application/json",
-            "Connection": "close"  # Important for some servers
-        }
-        http_request = (
-            f"{method} {endpoint} HTTP/1.1\r\n"
-            f"Host: localhost\r\n"
-            f"Content-Length: {len(body)}\r\n"
-        )
-        for header, value in headers.items():
-            http_request += f"{header}: {value}\r\n"
-        http_request += f"\r\n{body}"
-        return http_request
+        # URL-encode the Unix socket path
+        socket_path = quote(connection_config.address, safe='')
+        self.base_url = f'http+unix://{socket_path}'
 
     def create_coordinate_system(self, name=None):
-        while True: # TODO This is most certainly NOT the right behavior long-term!
-                    # TODO This is just a temporary workaround because create cs keeps returning an empty body randomly
-                    # TODO fix that, then this.
-            try:
-                guid = self._create_coordinate_system()
-                break
-            except Exception as e:
-                print(f"Error creating coordinate system, retrying: {e}")
+        url = f'{self.base_url}/coordsys'
+        response = self.session.post(url, json={"type": "create_cs"})
+        response.raise_for_status()
+        guid = response.json()['cs_guid']
+        print(f"API client received GUID from create_coordinate_system: {guid}")
         if name:
             self.name_coordinate_system(guid, name)
         return guid
 
-    def _create_coordinate_system(self):
-        endpoint = "/coordsys"
-        body = json.dumps({"type": "create_cs"})
-        http_request = self._http_request(endpoint, "POST", body)
-
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-        
-        # Now we need to parse the HTTP response
-        response = conn.receive().decode('utf-8')
-        print(f"API client received response from create_coordinate_system: {response}")
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to create coordinate system: {response}")
-        
-        # Split the response into headers and body
-        headers, body = response.split('\r\n\r\n', 1)
-        print(f"API client received body from create_coordinate_system: {body}")
-        
-        if not body.strip():
-            raise RuntimeError("Empty body received from create_coordinate_system")
-        # Parse the JSON body
-        json_response = json.loads(body)
-        
-        return json_response['cs_guid']
-
     def name_coordinate_system(self, cs_guid, name):
-        # "type": "name_cs",
-        # "cs_guid": "unique-guid-string"
-        # "name": "new-name"
-        endpoint = f"/coordsys/{cs_guid}/name"
-        body = json.dumps({"type": "name_cs", "name": name})
-        http_request = self._http_request(endpoint, "PUT", body)
+        url = f'{self.base_url}/coordsys/{cs_guid}/name'
+        response = self.session.put(url, json={"name": name})
+        #response.raise_for_status()
+        print(f"API client received response from name_coordinate_system: {response}")
+        return response.json()
 
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-
-        response = conn.receive().decode('utf-8')
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to name coordinate system: {response}")
-    
     def add_normal_measurement(self, feature, cs, mean, covariance, dimensions, is_homogeneous):
-        endpoint = f"/coordsys/{cs}/measurement"
-        body = json.dumps({
+        url = f'{self.base_url}/coordsys/{cs}/measurement'
+        response = self.session.post(url, json={
             "type": "NormalMeasurement",
             "feature": feature,
             "mean": mean,
             "covariance": covariance,
             "dimensions": dimensions,
-            "is_homogeneous": is_homogeneous})
-        http_request = self._http_request(endpoint, "POST", body)
-
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-        
-        response = conn.receive().decode('utf-8')
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to add measurement: {response}")
-        
-        headers, body = response.split('\r\n\r\n', 1)
-        return json 
+            "is_homogeneous": is_homogeneous
+        })
+        response.raise_for_status()
+        print(f"API client received response from add_normal_measurement: {response}")
+        return response.json()
 
     def add_measurements(self, cs, measurements):
-        endpoint = f"/coordsys/{cs}/measurements"
-        body = json.dumps({"measurements": measurements})
-        http_request = self._http_request(endpoint, "POST", body)
-
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-        
-        response = conn.receive().decode('utf-8')
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to add measurements: {response}")
-        
-        headers, body = response.split('\r\n\r\n', 1)
-        return json.loads(body)
+        url = f'{self.base_url}/coordsys/{cs}/measurements'
+        response = self.session.post(url, json={"measurements": measurements})
+        response.raise_for_status()
+        print(f"API client received response from add_measurements: {response}")
+        return response.json()
 
     def start_alignment(self):
-        endpoint = "/alignment"
-        body = json.dumps({"action": "start"})
-        http_request = self._http_request(endpoint, "POST", body)
-
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-        
-        response = conn.receive().decode('utf-8')
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to start alignment: {response}")
-        
-        headers, body = response.split('\r\n\r\n', 1)
-        return json.loads(body)
+        url = f'{self.base_url}/alignment'
+        response = self.session.post(url, json={"action": "start"})
+        response.raise_for_status()
+        print(f"API client received response from start_alignment: {response}")
+        return response.json()
 
     def get_transform(self, source_cs: str, target_cs: str, relation_type: str='convert') -> AlignmentResult:
-        endpoint = f"/transforms/{relation_type}/{source_cs}/to/{target_cs}"
-        http_request = self._http_request(endpoint, "GET", "")
+        url = f'{self.base_url}/transforms/{relation_type}/{source_cs}/to/{target_cs}'
+        response = self.session.get(url)
+        response.raise_for_status()
+        print(f"API client received response from get_transform: {response}")
+        return AlignmentResult.from_json(response.json())
 
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-
-        response = conn.receive().decode('utf-8')
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to get transform: {response}")
-        
-        headers, body = response.split('\r\n\r\n', 1)
-        print(body)
-        return AlignmentResult.from_json(json.loads(body))
-
-    # Stream methods
     def create_stream(self, config):
-        endpoint = "/stream"
-        body = json.dumps(config)
-        http_request = self._http_request(endpoint, "POST", body)
-
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-
-        response = conn.receive().decode('utf-8')
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to create stream: {response}")
-        
-        headers, body = response.split('\r\n\r\n', 1)
-        return json.loads(body)
+        url = f'{self.base_url}/stream'
+        response = self.session.post(url, json=config)
+        response.raise_for_status()
+        print(f"API client received response from create_stream: {response}")
+        return response.json()
 
     def send_twig(self, twig_data):
-        endpoint = f"/twig"
-        body = json.dumps(twig_data)
-        http_request = self._http_request(endpoint, "POST", body)
-
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-
-        response = conn.receive().decode('utf-8')
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to send twig: {response}")
-        
-        headers, body = response.split('\r\n\r\n', 1)
-        return json.loads(body)
+        url = f'{self.base_url}/twig'
+        response = self.session.post(url, json=twig_data)
+        response.raise_for_status()
+        print(f"API client received response from send_twig: {response}")
+        return response.json()
 
     def set_router(self, stream_id, config):
-        endpoint = f"/stream/{stream_id}/router"
-        body = json.dumps(config)
-        http_request = self._http_request(endpoint, "POST", body)
-
-        conn = self._get_connection()
-        conn.send(http_request.encode('utf-8'))
-
-        response = conn.receive().decode('utf-8')
-        if not response.startswith('HTTP/1.1 20'):
-            raise RuntimeError(f"Failed to create router: {response}")
-
-        headers, body = response.split('\r\n\r\n', 1)
-        return json.loads(body)
+        url = f'{self.base_url}/stream/{stream_id}/router'
+        response = self.session.post(url, json=config)
+        response.raise_for_status()
+        print(f"API client received response from set_router: {response}")
+        return response.json()
 
     def close(self):
-        self._connection.disconnect()
+        self._conn.disconnect()
 
-    # Other methods as defined in your original APIClient class
 
-# {
-#     "request_id":"(uuid4)",
-#     "type": "set_cs_name",
-#     "guid": "unique-guid-string"
-#     "name": "new-name"
-# }
+class CustomConnectionAdapter(BaseAdapter):
+    def __init__(self, connection_manager: ConnectionManager, connection_config: ConnectionConfigInterface):
+        self.connection_manager = connection_manager
+        self.connection_config = connection_config
+
+    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
+        start_time = time.time()
+        # Parse the URL
+        authority, path = request.url.split('://')
+        quoted_socket_path, *path_parts = path.split('/')
+        socket_path = unquote(quoted_socket_path) # decode the URL-encoded socket path
+        endpoint = '/' + '/'.join(path_parts)
+        print(f"CustomConnectionAdapter.send: socket_path is {socket_path}, endpoint is {endpoint}")
+
+        # Use the socket_path to create your connection
+        conn = self.connection_manager.create_connection(self.connection_config.type, self.connection_config)
+        conn.connect()
+
+        # Convert requests' request to your format
+        body = request.body.decode('utf-8') if request.body else ""
+        headers = request.headers
+        print(f"CustomConnectionAdapter.send: headers are {headers}, body is {body}")
+
+        # Create your custom HTTP request
+        http_request = f"{request.method} {endpoint} HTTP/1.1\r\n"
+        for key, value in headers.items():
+            http_request += f"{key}: {value}\r\n"
+
+        http_request += f"\r\n{body}"
+
+        # Send and receive using your connection
+        conn.send(http_request.encode('utf-8'))
+        raw_response = conn.receive().decode('utf-8')
+
+        # Parse the raw response
+        status_line, rest = raw_response.split('\r\n', 1)
+        headers, body = rest.split('\r\n\r\n', 1)
+        print(f"CustomConnectionAdapter.send response: received response: status_line is {status_line}, headers are:\n\n{headers}\n")
+
+        # parse out content-length header
+        content_length = int(headers.split('Content-Length: ')[1].split('\r\n')[0])
+        while len(body) < content_length and (timeout is None or time.time() - start_time < timeout):
+            body += conn.receive().decode('utf-8')
+        print(f"CustomConnectionAdapter.send response: body is {body}")
+
+        # Create a requests Response object
+        response = Response()
+        response.status_code = int(status_line.split()[1])
+        response.headers = dict(line.split(': ') for line in headers.split('\r\n'))
+        response._content = body.encode('utf-8')
+
+        return response
+
+    def close(self):
+        pass
