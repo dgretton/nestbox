@@ -1,4 +1,3 @@
-# TODO: convert all float32 to float64
 import torch
 import numpy as np
 from torch.autograd import profiler
@@ -15,10 +14,10 @@ class TorchAligner(Aligner):
     def transform_point(self, origin, orientation, point):
         # Ensure point is tensor, if not already
         point = coerce_numpy(point)
-        point = torch.tensor(point, dtype=torch.float32, requires_grad=True) if not isinstance(point, torch.Tensor) else point
+        point = torch.tensor(point, dtype=torch.float64, requires_grad=True) if not isinstance(point, torch.Tensor) else point
 
         # Form the quaternion-like tensor by adding a zero scalar part
-        point_quaternion = torch.cat((torch.tensor([0.0], requires_grad=True, dtype=torch.float32), point))  # Ensure this is a float tensor
+        point_quaternion = torch.cat((torch.tensor([0.0], requires_grad=True, dtype=torch.float64), point))  # Ensure this is a float tensor
 
         # Perform the Hamilton product for rotation (quaternion must be normalized)
         rotated_point = self.hamilton_product(orientation, point_quaternion)
@@ -32,12 +31,12 @@ class TorchAligner(Aligner):
     def inverse_transform_point(self, origin, orientation, point):
         # Ensure point is tensor, if not already
         point = coerce_numpy(point)
-        point = torch.tensor(point, dtype=torch.float32, requires_grad=True) if not isinstance(point, torch.Tensor) else point
+        point = torch.tensor(point, dtype=torch.float64, requires_grad=True) if not isinstance(point, torch.Tensor) else point
 
         # Form the quaternion-like tensor by adding a zero scalar part
-        point_quaternion = torch.cat((torch.tensor([0.0], requires_grad=True, dtype=torch.float32), point))
+        point_quaternion = torch.cat((torch.tensor([0.0], requires_grad=True, dtype=torch.float64), point))
 
-        translated_point = point_quaternion - torch.cat((torch.tensor([0.0], dtype=torch.float32), origin))
+        translated_point = point_quaternion - torch.cat((torch.tensor([0.0], dtype=torch.float64), origin))
         #rotate by the inverse of the orientation
         rotated_point = self.hamilton_product(self.quaternion_conjugate(orientation), translated_point)
         rotated_point = self.hamilton_product(rotated_point, orientation)
@@ -50,7 +49,7 @@ class TorchAligner(Aligner):
         return torch.cat((q[0:1], -q[1:]))
 
     def hamilton_product(self, q1, q2):
-        scalar = q1[0] * q2[0] - torch.sum(q1[1:] * q2[1:], dtype=torch.float32)
+        scalar = q1[0] * q2[0] - torch.sum(q1[1:] * q2[1:], dtype=torch.float64)
         vector = q1[0] * q2[1:] + q2[0] * q1[1:] + torch.cross(q1[1:], q2[1:])
         return torch.cat((scalar.unsqueeze(0), vector))
 
@@ -78,7 +77,7 @@ class TorchAligner(Aligner):
             [1 - 2 * (q2 * q2 + q3 * q3),  2 * (q1 * q2 - q0 * q3),      2 * (q1 * q3 + q0 * q2)],
             [2 * (q1 * q2 + q0 * q3),      1 - 2 * (q1 * q1 + q3 * q3),  2 * (q2 * q3 - q0 * q1)],
             [2 * (q1 * q3 - q0 * q2),      2 * (q2 * q3 + q0 * q1),      1 - 2 * (q1 * q1 + q2 * q2)]
-        ], dtype=torch.float32, requires_grad=True)
+        ], dtype=torch.float64, requires_grad=True)
 
     def rotate_covariance(self, quaternion, covariance):
         return self.quaternion_to_rotation_matrix(quaternion) @ covariance @ self.quaternion_to_rotation_matrix(quaternion).T
@@ -129,8 +128,8 @@ class GradientAligner(TorchAligner):
         #if not self.stale(): TODO put back probably, once we know how to reset gradients without rebuilding the model
         #    return
         # print('BUILDING MODEL')
-        self.origins = torch.tensor(coerce_numpy(self.current_origins), dtype=torch.float32, requires_grad=True)
-        self.orientations = torch.tensor(coerce_numpy(self.current_orientations), dtype=torch.float32, requires_grad=True)
+        self.origins = torch.tensor(coerce_numpy(self.current_origins), dtype=torch.float64, requires_grad=True)
+        self.orientations = torch.tensor(coerce_numpy(self.current_orientations), dtype=torch.float64, requires_grad=True)
 
         if self.loss is None: # on the first run,
         # print out all coordinate systems, their measurements, and initial parameters
@@ -151,7 +150,7 @@ class GradientAligner(TorchAligner):
 
         css_with_measurements = [cs for cs in self.coordinate_systems if cs.measurements]
         if not css_with_measurements:
-            self.loss = torch.tensor(0.0, dtype=torch.float32, requires_grad=True)
+            self.loss = torch.tensor(0.0, dtype=torch.float64, requires_grad=True)
             return
         chosen_coord_sys = np.random.choice(css_with_measurements)
         random_idx = self.coordinate_systems.index(chosen_coord_sys)
@@ -167,8 +166,8 @@ class GradientAligner(TorchAligner):
             if isinstance(meas, NormalMeasurement):
                 chosen_mean = meas.mean
                 chosen_cov = meas.covariance
-                chosen_mean = torch.tensor(transform_point(self.origins[random_idx], self.orientations[random_idx], chosen_mean), dtype=torch.float32)
-                chosen_cov = torch.tensor(rotate_covariance(self.orientations[random_idx], chosen_cov), dtype=torch.float32)
+                chosen_mean = torch.tensor(transform_point(self.origins[random_idx], self.orientations[random_idx], chosen_mean), dtype=torch.float64)
+                chosen_cov = torch.tensor(rotate_covariance(self.orientations[random_idx], chosen_cov), dtype=torch.float64)
                 temp_sampled_points.append(torch.distributions.MultivariateNormal(chosen_mean, chosen_cov).sample())
                 temp_sampled_features.append(feature_id)
             # elif isinstance(meas, ...): etc.
@@ -181,7 +180,7 @@ class GradientAligner(TorchAligner):
             # Keeping for now because sometimes this edge case arises while setting up coordinate systems from multiple sources, if someone
             # starts the aligner too early.
             #print(f"No measurements in coordinate system {chosen_coord_sys.name} that are in any other coordinate systems")
-            self.loss = torch.tensor(0.0, dtype=torch.float32, requires_grad=True)
+            self.loss = torch.tensor(0.0, dtype=torch.float64, requires_grad=True)
             return
         temp_sampled_points = torch.stack(temp_sampled_points)
         self.sampled_features = temp_sampled_features[:] # save for inspection
@@ -205,8 +204,8 @@ class GradientAligner(TorchAligner):
             origin = self.origins[i]
             orientation = self.orientations[i]
             # for (mean, covariance), temp_known_point in zip(coord_sys.measurements, temp_sampled_points):
-            #     mean = torch.tensor(mean, dtype=torch.float32, requires_grad=True)
-            #     covariance = torch.tensor(covariance, dtype=torch.float32, requires_grad=True)
+            #     mean = torch.tensor(mean, dtype=torch.float64, requires_grad=True)
+            #     covariance = torch.tensor(covariance, dtype=torch.float64, requires_grad=True)
             #     global_space_mean = self.transform_point(origin, orientation, mean)
             #     global_space_covariance = self.rotate_covariance(orientation, covariance)
             #     coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_known_point, global_space_mean, global_space_covariance))
@@ -215,8 +214,8 @@ class GradientAligner(TorchAligner):
                     continue
                 meas = coord_sys.measurements[feature_id]
                 if isinstance(meas, NormalMeasurement):
-                    mean = torch.tensor(meas.mean, dtype=torch.float32, requires_grad=True)
-                    covariance = torch.tensor(meas.covariance, dtype=torch.float32, requires_grad=True)
+                    mean = torch.tensor(meas.mean, dtype=torch.float64, requires_grad=True)
+                    covariance = torch.tensor(meas.covariance, dtype=torch.float64, requires_grad=True)
                     global_space_mean = self.transform_point(origin, orientation, mean)
                     global_space_covariance = self.rotate_covariance(orientation, covariance)
                     coord_sys_log_likelihoods.append(self.multivariate_gaussian_log_likelihood(temp_sampled_points[j], global_space_mean, global_space_covariance))
@@ -224,7 +223,7 @@ class GradientAligner(TorchAligner):
                 else:
                     ValueError("All measurements must be of type NormalMeasurement at the moment")
 
-        self.loss = -torch.sum(torch.stack(coord_sys_log_likelihoods), dtype=torch.float32)
+        self.loss = -torch.sum(torch.stack(coord_sys_log_likelihoods), dtype=torch.float64)
         self.loss.retain_grad()
 
         for coord_sys in self.coordinate_systems:
@@ -289,7 +288,7 @@ class GradientAligner(TorchAligner):
             self.origins.grad.zero_()
             self.orientations.grad.zero_()
             # Renormalizing the orientations to maintain them as unit quaternions
-            self.orientations /= torch.linalg.norm(self.orientations, dim=1, keepdim=True, dtype=torch.float32)
+            self.orientations /= torch.linalg.norm(self.orientations, dim=1, keepdim=True, dtype=torch.float64)
             if self.pinned_cs_idx is None:
                 # Move the mean of the origins back to zero for stability
                 self.origins -= torch.mean(self.origins, dim=0, keepdim=True)
@@ -368,7 +367,7 @@ class AdamAligner(GradientAligner):
                 param.grad.zero_()
 
             # Renormalize orientations if necessary
-            self.orientations /= torch.linalg.norm(self.orientations, dim=1, keepdim=True, dtype=torch.float32)
+            self.orientations /= torch.linalg.norm(self.orientations, dim=1, keepdim=True, dtype=torch.float64)
             if self.pinned_cs_idx is None:
                 self.origins -= torch.mean(self.origins, dim=0, keepdim=True)
             else:
