@@ -131,6 +131,9 @@ class GradientAligner(TorchAligner):
         # print('BUILDING MODEL')
         self.origins = torch.tensor(coerce_numpy(self.current_origins), dtype=torch.float64, requires_grad=True)
         self.orientations = torch.tensor(coerce_numpy(self.current_orientations), dtype=torch.float64, requires_grad=True)
+        # orientations is already made of normalized quaternions, but normalize again so that the gradients are correct
+        # e.g. a quaternion update directly toward or away from the origin has a gradient of zero by construction
+        orientations = self.orientations / torch.linalg.norm(self.orientations, dim=1, keepdim=True, dtype=torch.float64)
 
         if self.first_time:
             self.first_time = False
@@ -138,7 +141,7 @@ class GradientAligner(TorchAligner):
             for i, coord_sys in enumerate(self.coordinate_systems):
                 print(f'Coordinate system {i} named "{coord_sys.name}":')
                 print(f"    Origin: {self.origins[i]}")
-                print(f"    Orientation: {self.orientations[i]}")
+                print(f"    Orientation: {orientations[i]}")
                 if not coord_sys.measurements:
                     print("    No measurements")
                 for feature_id, meas in coord_sys.measurements.items():
@@ -168,8 +171,8 @@ class GradientAligner(TorchAligner):
             if isinstance(meas, NormalMeasurement):
                 chosen_mean = meas.mean
                 chosen_cov = meas.covariance
-                chosen_mean = torch.tensor(transform_point(self.origins[random_idx], self.orientations[random_idx], chosen_mean), dtype=torch.float64)
-                chosen_cov = torch.tensor(rotate_covariance(self.orientations[random_idx], chosen_cov), dtype=torch.float64)
+                chosen_mean = torch.tensor(transform_point(self.origins[random_idx], orientations[random_idx], chosen_mean), dtype=torch.float64)
+                chosen_cov = torch.tensor(rotate_covariance(orientations[random_idx], chosen_cov), dtype=torch.float64)
                 temp_sampled_points.append(torch.distributions.MultivariateNormal(chosen_mean, chosen_cov).sample())
                 temp_sampled_features.append(feature_id)
             # elif isinstance(meas, ...): etc.
@@ -204,7 +207,7 @@ class GradientAligner(TorchAligner):
             # 5. store the sum in self.loss
 
             origin = self.origins[i]
-            orientation = self.orientations[i]
+            orientation = orientations[i]
             # for (mean, covariance), temp_known_point in zip(coord_sys.measurements, temp_sampled_points):
             #     mean = torch.tensor(mean, dtype=torch.float64, requires_grad=True)
             #     covariance = torch.tensor(covariance, dtype=torch.float64, requires_grad=True)
@@ -302,8 +305,8 @@ class GradientAligner(TorchAligner):
                     self.origins[i] = self.inverse_transform_point(pinned_origin, pinned_orientation, self.origins[i])
                     self.orientations[i] = self.hamilton_product(self.quaternion_conjugate(pinned_orientation), self.orientations[i])
                 # assert that the one at the specified index is at 0, 0, 0, and 1, 0, 0, 0 (or all close)
-                assert torch.allclose(self.origins[self.pinned_cs_idx], torch.tensor([0., 0., 0.]))
-                assert torch.allclose(self.orientations[self.pinned_cs_idx], torch.tensor([1., 0., 0., 0.]))
+                assert torch.allclose(self.origins[self.pinned_cs_idx], torch.tensor([0., 0., 0.], dtype=torch.float64))
+                assert torch.allclose(self.orientations[self.pinned_cs_idx], torch.tensor([1., 0., 0., 0.], dtype=torch.float64))
 
         # Detach the current states of origins and orientations
         self.current_origins = [origin.detach().numpy() for origin in self.origins]
@@ -378,8 +381,8 @@ class AdamAligner(GradientAligner):
                 for i in range(len(self.coordinate_systems)):
                     self.origins[i] = self.inverse_transform_point(pinned_origin, pinned_orientation, self.origins[i])
                     self.orientations[i] = self.hamilton_product(self.quaternion_conjugate(pinned_orientation), self.orientations[i])
-                assert torch.allclose(self.origins[self.pinned_cs_idx], torch.tensor([0., 0., 0.]))
-                assert torch.allclose(self.orientations[self.pinned_cs_idx], torch.tensor([1., 0., 0., 0.]))
+                assert torch.allclose(self.origins[self.pinned_cs_idx], torch.tensor([0., 0., 0.], dtype=torch.float64))
+                assert torch.allclose(self.orientations[self.pinned_cs_idx], torch.tensor([1., 0., 0., 0.], dtype=torch.float64))
 
         self.current_origins = [origin.detach().numpy() for origin in self.origins]
         self.current_orientations = [orientation.detach().numpy() for orientation in self.orientations]
