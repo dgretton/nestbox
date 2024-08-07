@@ -123,6 +123,7 @@ class GradientAligner(TorchAligner):
     def __init__(self, *args, learning_rate=0.01, **kwargs):
         self.learning_rate = learning_rate
         super().__init__(*args, **kwargs)
+        self.first_time = True
 
     def _build_model(self):
         #if not self.stale(): TODO put back probably, once we know how to reset gradients without rebuilding the model
@@ -131,8 +132,9 @@ class GradientAligner(TorchAligner):
         self.origins = torch.tensor(coerce_numpy(self.current_origins), dtype=torch.float64, requires_grad=True)
         self.orientations = torch.tensor(coerce_numpy(self.current_orientations), dtype=torch.float64, requires_grad=True)
 
-        if self.loss is None: # on the first run,
-        # print out all coordinate systems, their measurements, and initial parameters
+        if self.first_time:
+            self.first_time = False
+            # print out all coordinate systems, their measurements, and initial parameters
             for i, coord_sys in enumerate(self.coordinate_systems):
                 print(f'Coordinate system {i} named "{coord_sys.name}":')
                 print(f"    Origin: {self.origins[i]}")
