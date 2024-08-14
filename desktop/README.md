@@ -54,12 +54,17 @@ python app.py
 
 To run the aligner:
 
-1. Ensure Redis is installed (see Setup above).
-2. Make sure Redis is running on your machine. In a separate terminal run the following command:
+1. Compile the protobuf definitions into auto-generated python code with `protoc` ([ensure you have the `protoc` compiler installed](https://grpc.io/docs/protoc-installation/)):
+```bash
+cd nestbox/protos/.. # ensure you are in the parent directory of protos/
+protoc -I./protos --python_out=./python/nestbox/proto_generated  ./protos/twig.proto
+```
+2. Ensure Redis is installed (see Setup above).
+3. Make sure Redis is running on your machine. In a separate terminal run the following command:
 ```bash
 redis-server
 ```
-3. While the Flask app is running, open another new terminal and run the following command:
+4. While the Flask app is running, open another new terminal and run the following command:
 ```bash
 python nestbox/test_aligner.py
 ```
