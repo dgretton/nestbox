@@ -23,7 +23,7 @@ class NestboxAPIClient:
         response = self.session.post(url, json={"type": "create_cs"})
         response.raise_for_status()
         guid = response.json()['cs_guid']
-        print(f"API client received GUID from create_coordinate_system: {guid}")
+        #print(f"API client received GUID from create_coordinate_system: {guid}")
         if name:
             self.name_coordinate_system(guid, name)
         return guid
@@ -32,7 +32,7 @@ class NestboxAPIClient:
         url = f'{self.base_url}/coordsys/{cs_guid}/name'
         response = self.session.put(url, json={"name": name})
         #response.raise_for_status()
-        print(f"API client received response from name_coordinate_system: {response}")
+        #print(f"API client received response from name_coordinate_system: {response}")
         return response.json()
 
     def add_normal_measurement(self, feature, cs, mean, covariance, dimensions, is_homogeneous):
@@ -46,49 +46,49 @@ class NestboxAPIClient:
             "is_homogeneous": is_homogeneous
         })
         response.raise_for_status()
-        print(f"API client received response from add_normal_measurement: {response}")
+        #print(f"API client received response from add_normal_measurement: {response}")
         return response.json()
 
     def add_measurements(self, cs, measurements):
         url = f'{self.base_url}/coordsys/{cs}/measurements'
         response = self.session.post(url, json={"measurements": measurements})
         response.raise_for_status()
-        print(f"API client received response from add_measurements: {response}")
+        #print(f"API client received response from add_measurements: {response}")
         return response.json()
 
     def start_alignment(self):
         url = f'{self.base_url}/alignment'
         response = self.session.post(url, json={"action": "start"})
         response.raise_for_status()
-        print(f"API client received response from start_alignment: {response}")
+        #print(f"API client received response from start_alignment: {response}")
         return response.json()
 
     def get_transform(self, source_cs: str, target_cs: str, relation_type: str='convert') -> AlignmentResult:
         url = f'{self.base_url}/transforms/{relation_type}/{source_cs}/to/{target_cs}'
         response = self.session.get(url)
         response.raise_for_status()
-        print(f"API client received response from get_transform: {response}")
+        #print(f"API client received response from get_transform: {response}")
         return AlignmentResult.from_json(response.json())
 
     def create_stream(self, config):
         url = f'{self.base_url}/stream'
         response = self.session.post(url, json=config)
         response.raise_for_status()
-        print(f"API client received response from create_stream: {response}")
+        #print(f"API client received response from create_stream: {response}")
         return response.json()
 
     def send_twig(self, twig_data):
         url = f'{self.base_url}/twig'
         response = self.session.post(url, json=twig_data)
         response.raise_for_status()
-        print(f"API client received response from send_twig: {response}")
+        #print(f"API client received response from send_twig: {response}")
         return response.json()
 
     def set_router(self, stream_id, config):
         url = f'{self.base_url}/stream/{stream_id}/router'
         response = self.session.post(url, json=config)
         response.raise_for_status()
-        print(f"API client received response from set_router: {response}")
+        #print(f"API client received response from set_router: {response}")
         return response.json()
 
     def close(self):
@@ -107,7 +107,7 @@ class CustomConnectionAdapter(BaseAdapter):
         quoted_socket_path, *path_parts = path.split('/')
         socket_path = unquote(quoted_socket_path) # decode the URL-encoded socket path
         endpoint = '/' + '/'.join(path_parts)
-        print(f"CustomConnectionAdapter.send: socket_path is {socket_path}, endpoint is {endpoint}")
+        #print(f"CustomConnectionAdapter.send: socket_path is {socket_path}, endpoint is {endpoint}")
 
         # Use the socket_path to create your connection
         conn = self.connection_manager.create_connection(self.connection_config.type, self.connection_config)
@@ -116,7 +116,7 @@ class CustomConnectionAdapter(BaseAdapter):
         # Convert requests' request to your format
         body = request.body.decode('utf-8') if request.body else ""
         headers = request.headers
-        print(f"CustomConnectionAdapter.send: headers are {headers}, body is {body}")
+        #print(f"CustomConnectionAdapter.send: headers are {headers}, body is {body}")
 
         # Create your custom HTTP request
         http_request = f"{request.method} {endpoint} HTTP/1.1\r\n"
@@ -132,13 +132,13 @@ class CustomConnectionAdapter(BaseAdapter):
         # Parse the raw response
         status_line, rest = raw_response.split('\r\n', 1)
         headers, body = rest.split('\r\n\r\n', 1)
-        print(f"CustomConnectionAdapter.send response: received response: status_line is {status_line}, headers are:\n\n{headers}\n")
+        #print(f"CustomConnectionAdapter.send response: received response: status_line is {status_line}, headers are:\n\n{headers}\n")
 
         # parse out content-length header
         content_length = int(headers.split('Content-Length: ')[1].split('\r\n')[0])
         while len(body) < content_length and (timeout is None or time.time() - start_time < timeout):
             body += conn.receive().decode('utf-8')
-        print(f"CustomConnectionAdapter.send response: body is {body}")
+        #print(f"CustomConnectionAdapter.send response: body is {body}")
 
         # Create a requests Response object
         response = Response()
