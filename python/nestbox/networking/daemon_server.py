@@ -237,6 +237,7 @@ if __name__ == '__main__':
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--config-path", required=True, help="Path to the configuration file")
+    ap.add_argument("--live", action="store_true", help="Run the server in live mode") # TODO: remove
     args = ap.parse_args()
     
     with open(args.config_path, 'r') as file:

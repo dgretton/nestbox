@@ -30,7 +30,9 @@ class NestboxDaemon:
         self.coordsys_names = CSNames()
         self.loop = asyncio.get_event_loop()
         self.executor = ThreadPoolExecutor()
-        self.temp_live_data_shim = self.initialize_live_data_shim()
+        import sys # TODO temp switch for live data shim so we don't error out if the host doesn't connect
+        if '--live' in sys.argv:
+            self.temp_live_data_shim = self.initialize_live_data_shim()
 
     def initialize_live_data_shim(self):
         peer_info = self.peer_discovery_client.get_peers()[0]
