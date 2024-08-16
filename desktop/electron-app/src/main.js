@@ -5,7 +5,7 @@ const path = require('path');
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const redis = require('redis');
+const redis = require('ioredis');
 
 
 // Electron setup
@@ -13,6 +13,7 @@ const createWindow = () => {
   const win = new BrowserWindow({
     width: 800,
     height: 600,
+    resizable: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -43,8 +44,14 @@ app.on('window-all-closed', () => {
 function setupServer() {
   const expressApp = express();
   const server = http.createServer(expressApp);
-  const io = socketIo(server);
-  const redisClient = redis.createClient();
+  const io = socketIo(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    }
+  });
+  const redisClient = redis.createClient({ host: 'localhost', port: 6379 });
+  redisClient.connect();
 
   // Serve static files
   expressApp.use('/ui-core', express.static(path.join(__dirname, 'ui-core')));
@@ -57,7 +64,7 @@ function setupServer() {
 
   // Socket.IO connection
   io.on('connection', (socket) => {
-    console.log('A client connected');
+    console.log('A client connected', socket.id);
 
     socket.on('pin_system', (message) => {
       console.log(`Pin coordinate system: ${message.pin}`);
@@ -66,6 +73,11 @@ function setupServer() {
 
     socket.on('disconnect', () => {
       console.log('A client disconnected');
+    });
+
+    socket.on("test", (data) => {
+      console.log(data);
+      io.emit("test_back", "testing back");
     });
   });
 
