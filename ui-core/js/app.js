@@ -53,8 +53,6 @@ animate();
 
 // Connect to WebSocket server
 const socket = io.connect('http://' + location.hostname + ':' + location.port);
-console.log(document.location.hostname);
-console.log(location.port);
 socket.on('connect', () => {
     console.log('Socket.IO connection established');
     socket.emit("test", "hi test");

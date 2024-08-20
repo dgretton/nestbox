@@ -7,6 +7,9 @@ const http = require('http');
 const socketIo = require('socket.io');
 const redis = require('ioredis');
 
+const expressApp = express();
+const server = http.createServer(expressApp);
+const port = 5000;
 
 // Electron setup
 const createWindow = () => {
@@ -23,7 +26,7 @@ const createWindow = () => {
   // For debugging
   win.webContents.openDevTools()
 
-  win.loadURL('http://localhost:5000');
+  win.loadURL(`http://localhost:${port}`);
 };
 
 app.whenReady().then(() => {
@@ -39,11 +42,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+// Quit the app when closed
+app.on('will-quit', () => {
+  server.close();
+});
+
 
 // Express server setup
 function setupServer() {
-  const expressApp = express();
-  const server = http.createServer(expressApp);
   const io = socketIo(server, {
     cors: {
       origin: "*",
@@ -90,8 +96,8 @@ function setupServer() {
     }
   });
 
-  server.listen(5000, () => {
-    console.log('Server is running on port 5000');
+  server.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
   });
 }
 
