@@ -1,6 +1,6 @@
 // main.js
 
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Tray, Menu } = require('electron');
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -11,9 +11,11 @@ const expressApp = express();
 const server = http.createServer(expressApp);
 const port = 5000;
 
+let mainWindow;
+
 // Electron setup
 const createWindow = () => {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     resizable: true,
@@ -24,14 +26,38 @@ const createWindow = () => {
   });
 
   // For debugging
-  win.webContents.openDevTools()
+  mainWindow.webContents.openDevTools()
 
-  win.loadURL(`http://localhost:${port}`);
+  mainWindow.loadURL(`http://localhost:${port}`);
+
+  mainWindow.on('minimize', function (event) {
+    event.preventDefault();
+    mainWindow.hide();
+  });
+
+  mainWindow.on('close', function (event) {
+    if (!app.isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+    return false;
+  });
 };
 
+const createTray = () => {
+  const tray = new Tray(path.join(__dirname, 'nestbox-tray-icon.png'));
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Show App', click: () => mainWindow.show() },
+    { label: 'Quit', click: () => { app.isQuitting = true; app.quit(); } }
+  ]);
+  tray.setToolTip('Nestbox App');
+  tray.setContextMenu(contextMenu);
+}
+
 app.whenReady().then(() => {
-  createWindow();
   setupServer();
+  createWindow();
+  createTray();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -56,7 +82,7 @@ function setupServer() {
       methods: ["GET", "POST"]
     }
   });
-  const redisClient = redis.createClient({ host: 'localhost', port: 6379 });
+  const redisClient = redis.createClient();
   redisClient.connect();
 
   // Serve static files

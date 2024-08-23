@@ -16,7 +16,8 @@ module.exports = {
       patterns: [
         { from: 'src/index.html', to: 'src/index.html' },
         { from: '../../ui-core', to: 'ui-core' },
-        { from: '../../libs', to: 'libs' }
+        { from: '../../libs', to: 'libs' },
+        { from: 'nestbox-tray-icon.png', to: 'nestbox-tray-icon.png' }
       ],
     }),
   ],
