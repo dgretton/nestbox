@@ -1,6 +1,7 @@
 // main.js
 
 const { app, BrowserWindow, Tray, Menu } = require('electron');
+const { spawn } = require('child_process');
 const path = require('path');
 const express = require('express');
 const http = require('http');
@@ -10,6 +11,8 @@ const redis = require('ioredis');
 const expressApp = express();
 const server = http.createServer(expressApp);
 const port = 5000;
+
+let redisServer;
 
 let mainWindow;
 
@@ -55,6 +58,7 @@ const createTray = () => {
 }
 
 app.whenReady().then(() => {
+  startRedisServer();
   setupServer();
   createWindow();
   createTray();
@@ -71,8 +75,24 @@ app.on('window-all-closed', () => {
 // Quit the app when closed
 app.on('will-quit', () => {
   server.close();
+  redisServer.kill();
 });
 
+function startRedisServer() {
+  redisServer = spawn('redis-server');
+
+  redisServer.stdout.on('data', (data) => {
+      console.log(`Redis Server: ${data}`);
+  });
+
+  redisServer.stderr.on('data', (data) => {
+      console.error(`Redis Server Error: ${data}`);
+  });
+
+  redisServer.on('close', (code) => {
+      console.log(`Redis Server process exited with code ${code}`);
+  });
+}
 
 // Express server setup
 function setupServer() {
