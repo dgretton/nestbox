@@ -75,7 +75,9 @@ app.on('window-all-closed', () => {
 // Quit the app when closed
 app.on('will-quit', () => {
   server.close();
-  redisServer.kill();
+  if (redisServer) {
+    redisServer.kill();
+  }
 });
 
 function startRedisServer() {
