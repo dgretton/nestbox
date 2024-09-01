@@ -16,7 +16,7 @@ class FeatureKey:
         raise NotImplementedError("FeatureKey objects must implement __hash__")
 
     def __repr__(self):
-        return f"FeatureKey({self.feature_id})"
+        return f"FeatureKey('{self.feature_id}')"
 
 
 class StrFeatureKey(FeatureKey):

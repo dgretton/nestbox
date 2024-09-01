@@ -50,7 +50,7 @@ hand_points = [
     (0.49422598, 1.13624716, 0.22093384),
 ]
 # center points at origin
-hand_points = (np.array(hand_points) - np.mean(hand_points, axis=0))*10
+hand_points = (np.array(hand_points) - np.mean(hand_points, axis=0))
 
 
 

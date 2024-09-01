@@ -64,12 +64,13 @@ class SimEnvironment:
 
     def project_to_image(self, camera, points_dict):
         # Assume the points are not already transformed into the camera's coordinate system.
-        obs_points_dict = self.points_from_observer_perspective(camera, points_dict)
+        obs_points_dict = self.points_dict_from_observer_perspective(camera, points_dict)
 
         # Filter out points where z <= 0 (behind camera)
         # valid_points = points[points[:, 2] > 0]
         valid_points_dict = {feature_id: pt for feature_id, pt in obs_points_dict.items() if pt[2] > 0}
         valid_features, valid_points = zip(*valid_points_dict.items())
+        valid_points = coerce_numpy(valid_points)
 
         # Calculate the angles in radians within the camera's field of view
         angles = np.arctan2(valid_points[:, 0], valid_points[:, 2]), np.arctan2(valid_points[:, 1], valid_points[:, 2])

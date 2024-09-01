@@ -31,15 +31,15 @@ def quaternion_to_basis(quaternion):
 
 def coerce_numpy(tensor):
     if isinstance(tensor, np.ndarray):
-        if tensor.dtype == np.float32:
+        if tensor.dtype == np.float64:
             return tensor
-        return tensor.astype(np.float32)
+        return tensor.astype(np.float64)
     elif isinstance(tensor, torch.Tensor):
         return tensor.detach().numpy()
     elif isinstance(tensor, pyquaternion.Quaternion):
-        return np.array(list(tensor), dtype=np.float32)
+        return np.array(list(tensor), dtype=np.float64)
     else:
-        return np.array(tensor, dtype=np.float32)
+        return np.array(tensor, dtype=np.float64)
 
 def coerce_quaternion(tensor):
     if isinstance(tensor, np.ndarray):

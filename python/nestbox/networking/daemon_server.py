@@ -105,7 +105,9 @@ class AddMeasurementsResource(Resource):
         if not measurements:
             return {"error": "Missing 'measurements' in request body"}, 400
         try:
-            global_daemon.add_measurements(cs, measurements)
+            result = global_daemon.add_measurements(cs, measurements)
+            if result['status'] == 'error':
+                return {"error": f"Failed to add measurements: {result['message']}"}, 500
             return {"message": "Measurements added successfully"}, 200
         except Exception as e:
             return {"error": f"Failed to add measurements: {str(e)}"}, 500
@@ -235,6 +237,7 @@ if __name__ == '__main__':
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--config-path", required=True, help="Path to the configuration file")
+    ap.add_argument("--live", action="store_true", help="Run the server in live mode") # TODO: remove
     args = ap.parse_args()
     
     with open(args.config_path, 'r') as file:
