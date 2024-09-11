@@ -234,18 +234,21 @@ if __name__ == '__main__':
     import signal
     import yaml
     import argparse
+    import sys
+    from os import path
+    from nestbox.config import resource_path, DAEMON_CONN_CONFIG as conn
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config-path", required=True, help="Path to the configuration file")
+    ap.add_argument("--config-path", required=False, help="Path to the configuration file")
     ap.add_argument("--live", action="store_true", help="Run the server in live mode") # TODO: remove
     args = ap.parse_args()
-    
+
+    if args.config_path is None:
+        args.config_path = resource_path("config/example_config.yaml")
     with open(args.config_path, 'r') as file:
         config = yaml.safe_load(file)
     
     global_daemon.initialize(config)
-    
-    from nestbox.config import DAEMON_CONN_CONFIG as conn
     
     if conn.type == 'unix_socket':
         socket_path = conn.address
