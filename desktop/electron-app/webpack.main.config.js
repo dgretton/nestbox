@@ -1,6 +1,5 @@
 const path = require('path');
 const CopyPlugin = require("copy-webpack-plugin");
-
 module.exports = {
   /**
    * This is the main entry point for your application, it's the first file

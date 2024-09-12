@@ -256,7 +256,10 @@ if __name__ == '__main__':
         # Check if the directory for the socket exists
         socket_dir = os.path.dirname(socket_path)
         if not os.path.exists(socket_dir):
-            raise FileNotFoundError(f"Directory for Unix socket does not exist: {socket_dir}")
+            try:
+                os.makedirs("~/.nestbox/socket")
+            except:
+                raise FileNotFoundError(f"Directory for Unix socket does not exist: {socket_dir}")
 
         # Remove the socket file if it already exists
         if os.path.exists(socket_path):

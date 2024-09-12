@@ -1,8 +1,8 @@
 {
-  "name": "electron-app",
-  "productName": "electron-app",
+  "name": "nestbox",
+  "productName": "Nestbox",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Nestbox Desktop",
   "main": ".webpack/main",
   "scripts": {
     "start": "electron-forge start",

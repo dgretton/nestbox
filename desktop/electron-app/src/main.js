@@ -13,6 +13,7 @@ const server = http.createServer(expressApp);
 const port = 5000;
 
 let redisServer;
+let nestboxDaemon;
 
 let mainWindow;
 
@@ -21,6 +22,7 @@ const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    title: app.name,
     resizable: true,
     webPreferences: {
       nodeIntegration: true,
@@ -59,6 +61,7 @@ const createTray = () => {
 
 app.whenReady().then(() => {
   startRedisServer();
+  startNestboxDaemon();
   setupServer();
   createWindow();
   createTray();
@@ -78,10 +81,21 @@ app.on('will-quit', () => {
   if (redisServer) {
     redisServer.kill();
   }
+  if (nestboxDaemon) {
+    nestboxDaemon.kill();
+  }
 });
 
 function startRedisServer() {
-  redisServer = spawn('redis-server');
+  let redisServerPath;
+  if (app.isPackaged) {
+    // Production (packaged) environment
+    redisServerPath = path.join(process.resourcesPath, 'dist', 'redis-server');
+  } else {
+    // Development environment
+    redisServerPath = 'redis-server';
+  }
+  redisServer = spawn(redisServerPath);
 
   redisServer.stdout.on('data', (data) => {
       console.log(`Redis Server: ${data}`);
@@ -93,6 +107,30 @@ function startRedisServer() {
 
   redisServer.on('close', (code) => {
       console.log(`Redis Server process exited with code ${code}`);
+  });
+}
+
+function startNestboxDaemon() {
+  let nestboxDaemonPath;
+  if (app.isPackaged) {
+    // Production (packaged) environment
+    nestboxDaemonPath = path.join(process.resourcesPath, 'dist', 'daemon_server');
+  } else {
+    // Development environment
+    nestboxDaemonPath = path.join(__dirname, '../../../../python/nestbox/dist/daemon_server');
+  }
+  nestboxDaemon = spawn(nestboxDaemonPath);
+
+  nestboxDaemon.stdout.on('data', (data) => {
+      console.log(`Nestbox Daemon: ${data}`);
+  });
+
+  nestboxDaemon.stderr.on('data', (data) => {
+      console.error(`Nestbox Daemon Error: ${data}`);
+  });
+
+  nestboxDaemon.on('close', (code) => {
+      console.log(`Nestbox Daemon process exited with code ${code}`);
   });
 }
 
