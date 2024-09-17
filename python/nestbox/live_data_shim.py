@@ -71,11 +71,15 @@ class LiveDataShim:
 
     def _twig_to_measurements(self, twig):
         measurements = []
-        for ms in twig.measurement_sets:
-            for i, (mean, cov) in enumerate(zip(ms.means, ms.covariances)):
+        for ms in twig.measurement_sets: # better hope there is only one measurement set
+            features = [f"nestbox:feature/hand/{twig.stream_id}/root-pose/position"] # this whole thing is clearly a magic trash fire, but it's a start
+            # also record tracking point measurements of the form nestbox:feature/hand/lefthand/trackingpoint/0/position or /1/position etc from 0 to 19
+            for i in range(20):
+                features.append(f"nestbox:feature/hand/{twig.stream_id}/trackingpoint/{i}/position")
+            for feat, mean, cov in zip(features, ms.means, ms.covariances):
                 measurements.append({
                     "type": "NormalMeasurement",
-                    "feature": f"{twig.stream_id}_{i}",
+                    "feature": feat,
                     "mean": mean.tolist(),
                     "covariance": cov.tolist(),
                     "dimensions": ms.dimensions,

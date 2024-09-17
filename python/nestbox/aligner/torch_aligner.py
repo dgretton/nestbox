@@ -103,6 +103,40 @@ class TorchAligner(Aligner):
         log_pdf_value = exponent - torch.log(normalization_constant_squared) * 0.5 #TODO: rewrite to take advantage of log properties
         self.log_pdf_value = log_pdf_value
         return log_pdf_value
+    
+    def gaussian_ray_integral_log(self, mean, cov, d):
+        """
+        Compute the log of the integral of a multivariate Gaussian along a ray from the origin.
+
+        Args:
+        mean (torch.Tensor): Mean vector of the Gaussian (shape: [n])
+        cov (torch.Tensor): Covariance matrix of the Gaussian (shape: [n, n])
+        d (torch.Tensor): Direction vector of the ray (shape: [n])
+
+        Returns:
+        torch.Tensor: The value of the integral
+        """
+        n = mean.shape[0]
+
+        # if the magnitude of the direction vector is not very close to 1, normalize it
+        if torch.norm(d) < 0.999999 or torch.norm(d) > 1.000001:
+            d = d / torch.norm(d)
+
+        inv_cov = torch.inverse(cov)
+        
+        a = torch.dot(d, torch.mv(inv_cov, d))
+        b = torch.dot(mean, torch.mv(inv_cov, d))
+        c = torch.dot(mean, torch.mv(inv_cov, mean))
+
+        log_integral = (
+            ((1 - n) / 2) * torch.log(2 * torch.pi)
+            + 0.5 * torch.log(torch.pi / (2 * a))
+            - 0.5 * torch.logdet(cov)
+            + (b**2 - a*c) / (2*a)
+            + torch.log1p(torch.erf(b / torch.sqrt(2*a)))
+        )
+
+        return log_integral
 
     # def generalized_jensen_shannon_divergence(self, feature_means, feature_covariances): TODO may come back to this
         # \mu_M = \frac{1}{N} \sum_{i=1}^N \mu_{P_i}

@@ -212,7 +212,8 @@ class _DaemonLocalAlignerServer(ServerInterface):
                     covariance = meas_data['covariance']
                     dimensions = meas_data.get('dimensions')
                     is_homogeneous = meas_data.get('is_homogeneous')
-                    measurements.append(NormalMeasurement(feature, mean, covariance, dimensions, clear_key=None))
+                    measurements.append(NormalMeasurement(feature, mean, covariance, dimensions,
+                                                          is_homogeneous=is_homogeneous, clear_key=None))
                 else:
                     raise ValueError(f"Unsupported measurement type: {meas_data['type']}")
             try:
@@ -220,6 +221,22 @@ class _DaemonLocalAlignerServer(ServerInterface):
                 success()
             except ValueError as e:
                 response.update({"status": "error", "message": str(e)})
+        elif request_type == 'get_current_measurement':
+            cs_guid = request['cs_guid']
+            feature_id = request['feature_id']
+            measurement = self.aligner_manager.get_current_measurement(cs_guid, feature_id)
+            if isinstance(measurement, NormalMeasurement):
+                meas_json = {
+                    "type": "NormalMeasurement",
+                    "feature": str(measurement.feature),
+                    "mean": measurement.mean,
+                    "covariance": measurement.covariance,
+                    "dimensions": measurement.dimensions,
+                    "is_homogeneous": measurement.is_homogeneous
+                }
+            else:
+                raise ValueError(f"Unsupported measurement type: {type(measurement)}")
+            response.update({"status": "success", "measurement": meas_json})
         elif request_type == 'add_twig':
             #data in bytes is base64 encoded in field twig_data
             data64 = request['twig_data']
@@ -357,6 +374,9 @@ class DaemonLocalAlignerClient(AlignerClientInterface):
 
     def add_measurements(self, cs_guid: str, measurements: List[Dict[str, Any]]) -> str:
         return self._wait_for_callback_result('add_measurements', {"cs_guid": cs_guid, "measurements": measurements})
+
+    def get_current_measurement(self, cs_guid: str, feature_id: str) -> Dict[str, Any]:
+        return self._wait_for_callback_result('get_current_measurement', {"cs_guid": cs_guid, "feature_id": feature_id})
 
     def set_router(self, stream_id: str, router_config: Dict[str, Any]) -> str:
         return self._wait_for_callback_result('set_router', {"stream_id": stream_id, "router_config": router_config})

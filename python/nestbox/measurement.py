@@ -15,7 +15,7 @@ def measurement(feature, mean, covariance):
 # Measurements have a feature, a mean vector and a covariance matrix at a minimum.
 # you can get_sample() a measurement to get a (mean vector, covariance) tuple of numpy arrays. # TODO no probably not
 class Measurement:
-    def __init__(self, feature, dimensions=None, is_homogenous=None, clear_key=None):
+    def __init__(self, feature, dimensions=None, is_homogeneous=None, clear_key=None):
         if not isinstance(feature, FeatureKey):
             raise ValueError(f"Measurement must be initialized with a FeatureKey object. Got {feature}")
         self.feature = feature
@@ -25,12 +25,12 @@ class Measurement:
             if not all (dim in Dim.all for dim in dimensions):
                 raise ValueError(f"Measurement dimensions must be one of {', '.join(list(Dim.all))}. Got {dimensions}")
             self.dimensions = dimensions
-        if is_homogenous is None:
-            self.is_homogenous = [False] * len(self.dimensions)
+        if is_homogeneous is None:
+            self.is_homogeneous = [False] * len(self.dimensions)
         else:
-            if not isinstance(is_homogenous, list) or not all(isinstance(homog, bool) for homog in is_homogenous):
-                raise ValueError(f"Measurement is_homogenous must be a list of booleans. Got {is_homogenous}")
-            self.is_homogenous = is_homogenous
+            if not isinstance(is_homogeneous, list) or not all(isinstance(homog, bool) for homog in is_homogeneous):
+                raise ValueError(f"Measurement is_homogeneous must be a list of booleans. Got {is_homogeneous}")
+            self.is_homogeneous = is_homogeneous
         if clear_key is not None and not isinstance(clear_key, str):
             raise ValueError(f"Measurement clear_key must be a string. Got {clear_key}")
         self.clear_key = clear_key # this is a string that can be used to clear the measurement from the aligner, possibly along with a group of other measurements, to properly invalidate old measurements when new ones arrive
@@ -47,8 +47,8 @@ class Measurement:
     
 
 class NormalMeasurement(Measurement):
-    def __init__(self, feature, mean, covariance, dimensions=None, is_homogenous=None, clear_key=None):
-        super().__init__(feature, dimensions, is_homogenous, clear_key)
+    def __init__(self, feature, mean, covariance, dimensions=None, is_homogeneous=None, clear_key=None):
+        super().__init__(feature, dimensions, is_homogeneous, clear_key)
         self.mean = mean
         self.covariance = covariance
 

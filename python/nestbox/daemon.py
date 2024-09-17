@@ -87,7 +87,12 @@ class NestboxDaemon:
         cs_guid = self.resolve_cs_name(cs)
         future = self.executor.submit(self.aligner_client.add_measurements, cs_guid, measurements)
         return future.result()
-    
+
+    def get_current_measurement(self, cs, feature_id):
+        cs_guid = self.resolve_cs_name(cs)
+        future = self.executor.submit(self.aligner_client.get_current_measurement, cs_guid, feature_id)
+        return future.result()['measurement']
+
     def start_aligner(self):
         future = self.executor.submit(self.aligner_client.start_alignment)
         return future.result()
@@ -135,7 +140,7 @@ class NestboxDaemon:
         if dimensions is None:
             raise ValueError("No dimensions provided")
         if is_homog is None:
-            raise ValueError("No is_homogenous flags provided")
+            raise ValueError("No is_homogeneous flags provided")
         meas_set = MeasurementSet(samples, dimensions, is_homog)
         twig = Twig(stream_id, cs_guid, [meas_set])
         # add a router for a stream, then pack the measurements into a twig with that stream and send it to the aligner
@@ -327,30 +332,30 @@ class DatabaseClientImplementation(DatabaseInterface):
         <feature-type name="Hand" multiple="true">
             <description>Hand tracking feature</description>
             <root-pose>
-            <position dimensions="XYZ">
-                <allowed-measurements>
-                <measurement-type>NormalMeasurement</measurement-type>
-                <measurement-type>OptionsMeasurement</measurement-type>
-                </allowed-measurements>
-                <default-measurement>NormalMeasurement</default-measurement>
-            </position>
-            <orientation dimensions="IJK">
-                <allowed-measurements>
-                <measurement-type>NormalMeasurement</measurement-type>
-                </allowed-measurements>
-                <default-measurement>NormalMeasurement</default-measurement>
-            </orientation>
+                <position dimensions="XYZ">
+                    <allowed-measurements>
+                        <measurement-type>NormalMeasurement</measurement-type>
+                        <measurement-type>OptionsMeasurement</measurement-type>
+                    </allowed-measurements>
+                    <default-measurement>NormalMeasurement</default-measurement>
+                </position>
+                <orientation dimensions="IJK">
+                    <allowed-measurements>
+                        <measurement-type>NormalMeasurement</measurement-type>
+                    </allowed-measurements>
+                    <default-measurement>NormalMeasurement</default-measurement>
+                </orientation>
             </root-pose>
             <features>
-            <feature-type name="TrackingPoint" multiple="true">
-                <position dimensions="XYZ">
-                <allowed-measurements>
-                    <measurement-type>NormalMeasurement</measurement-type>
-                    <measurement-type>CollectionMeasurement</measurement-type>
-                </allowed-measurements>
-                <default-measurement>NormalMeasurement</default-measurement>
-                </position>
-            </feature-type>
+                <feature-type name="TrackingPoint" multiple="true">
+                    <position dimensions="XYZ">
+                    <allowed-measurements>
+                        <measurement-type>NormalMeasurement</measurement-type>
+                        <measurement-type>CollectionMeasurement</measurement-type>
+                    </allowed-measurements>
+                    <default-measurement>NormalMeasurement</default-measurement>
+                    </position>
+                </feature-type>
             </features>
         </feature-type>
         </feature-definition>"""

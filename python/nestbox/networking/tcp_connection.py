@@ -11,7 +11,6 @@ class TCPConnection(ConnectionInterface):
         if not self.socket:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host, self.port))
-            print(f"Connected to {self.host}:{self.port}")
 
     def disconnect(self):
         if self.socket:

@@ -10,7 +10,6 @@ class UnixSocketConnection(ConnectionInterface):
         if not self.socket:
             self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self.socket.connect(self.socket_path)
-            print(f"Connected to {self.socket_path}")
 
     def disconnect(self):
         if self.socket:

@@ -39,6 +39,9 @@ class CoordinateSystem:
         self.set_stale() # mark that the model will now need to be rebuilt before more optimization can happen
         self.measurements.update({m.feature: m for m in measurements})
 
+    def get_measurement(self, feature):
+        return self.measurements.get(feature)
+
     def clear_measurements(self, clear_key=None):
         self.measurements = {feature: measurement for feature, measurement in self.measurements.items() if not measurement.clear_key.startswith(clear_key)}
 

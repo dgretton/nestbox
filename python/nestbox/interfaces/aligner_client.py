@@ -55,7 +55,7 @@ class AlignerClientInterface(ClientInterface, PubSubInterface):
         """Add a new twig (multiple binary-encoded measurement sets) to the given coordinate system."""
         pass
 
-    def add_measurement_set(self, cs_guid: str, dimensions: List[str], samples: List[Dict[str, Any]], transform: List[List[float]], is_homogenous: List[bool]) -> None:
+    def add_measurement_set(self, cs_guid: str, dimensions: List[str], samples: List[Dict[str, Any]], transform: List[List[float]], is_homogeneous: List[bool]) -> None:
         """Add a new measurement set to the given coordinate system."""
         pass
 
