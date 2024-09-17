@@ -246,18 +246,21 @@ if __name__ == '__main__':
     import signal
     import yaml
     import argparse
+    import sys
+    from os import path
+    from nestbox.config import resource_path, DAEMON_CONN_CONFIG as conn
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config-path", required=True, help="Path to the configuration file")
+    ap.add_argument("--config-path", required=False, help="Path to the configuration file")
     ap.add_argument("--live", action="store_true", help="Run the server in live mode") # TODO: remove
     args = ap.parse_args()
-    
+
+    if args.config_path is None:
+        args.config_path = resource_path("config/example_config.yaml")
     with open(args.config_path, 'r') as file:
         config = yaml.safe_load(file)
     
     global_daemon.initialize(config)
-    
-    from nestbox.config import DAEMON_CONN_CONFIG as conn
     
     if conn.type == 'unix_socket':
         socket_path = conn.address
@@ -265,7 +268,10 @@ if __name__ == '__main__':
         # Check if the directory for the socket exists
         socket_dir = os.path.dirname(socket_path)
         if not os.path.exists(socket_dir):
-            raise FileNotFoundError(f"Directory for Unix socket does not exist: {socket_dir}")
+            try:
+                os.makedirs("~/.nestbox/socket")
+            except:
+                raise FileNotFoundError(f"Directory for Unix socket does not exist: {socket_dir}")
 
         # Remove the socket file if it already exists
         if os.path.exists(socket_path):

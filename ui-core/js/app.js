@@ -32,6 +32,14 @@ function init() {
     visualElements = {};
 
     camera.position.z = 5;
+
+    window.addEventListener('resize', onWindowResize, false);
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function animate() {
@@ -44,7 +52,14 @@ init();
 animate();
 
 // Connect to WebSocket server
-const socket = io.connect('http://' + document.location.hostname + ':' + location.port);
+const socket = io.connect('http://' + location.hostname + ':' + location.port);
+socket.on('connect', () => {
+    console.log('Socket.IO connection established');
+    socket.emit("test", "hi test");
+});
+socket.on('connect_error', (error) => {
+    console.error('Connection error:', error);
+});
 
 // Menu actions
 function toggleMenu() {
@@ -121,3 +136,5 @@ socket.on('optimization_update', function(data) {
         visualElements[name].update(visualElementData.properties);
     });
 });
+
+socket.on("test_back", (data) => {console.log(data)});

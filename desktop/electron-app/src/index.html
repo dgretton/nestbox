@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+    <html>
+        <head>
+            <title>Nestbox 3D Visualization</title>
+            <link rel="stylesheet" type="text/css" href="/ui-core/css/style.css">
+            <script type="importmap">
+            {
+                "imports": {
+                    "three": "/libs/three/three.module.js",
+                    "three/addons/": "/libs/three/addons/"
+                }
+            }
+            </script>
+            <script src="/libs/socket.io/socket.io.min.js"></script>
+            <script type="module" src="/ui-core/js/app.js"></script>
+        </head>
+<body>
+    <div id="menu">
+        <div id="hamburger" onclick="toggleMenu()">☰</div>
+        <div id="settingsPanel" class="hidden">
+            <form>
+                <label for="pinSystem">Pin Coordinate System:</label>
+                <select id="pinSystem">
+                    <option value="none">None</option>
+                </select>
+                <button type="button" onclick="applyPin()">Apply</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
+
+<!-- <!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hello World!</title>
+
+  </head>
+  <body>
+    <h1>💖 Hello World!</h1>
+    <p>Welcome to your Electron application.</p>
+  </body>
+</html> -->
