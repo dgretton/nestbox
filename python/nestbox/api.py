@@ -34,6 +34,9 @@ def add_measurement(feature, cs, mean, covariance, dimensions=None, is_homogeneo
 def add_measurements(cs_guid, measurements):
     return _get_client().add_measurements(cs_guid, measurements)
 
+def get_current_measurement(cs, feature):
+    return _get_client().get_current_measurement(cs, feature)
+
 def start_alignment():
     return _get_client().start_alignment()
 

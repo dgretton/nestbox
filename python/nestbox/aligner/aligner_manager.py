@@ -1,5 +1,6 @@
 from .aligner_factory import AlignerFactory
 from ..sample_router import SampleRouter
+from ..feature import to_feature
 
 class AlignerManager:
     def __init__(self, aligner_config):
@@ -36,6 +37,18 @@ class AlignerManager:
             error_message = str(e)
             pass
         raise ValueError(f"Error updating measurements for coordinate system {coord_sys_id}: {error_message}")
+
+    def get_current_measurement(self, coord_sys_id, feature_id):
+        try:
+            print(f"coordinate system: {self.aligner.get_coordinate_system(coord_sys_id)}")
+            meas = self.aligner.get_coordinate_system(coord_sys_id).get_measurement(to_feature(feature_id))
+            if meas is None:
+                raise ValueError(f"No measurement found for feature ID {feature_id}")
+            return meas
+        except ValueError as e:
+            error_message = str(e)
+            pass
+        raise ValueError(f"Error getting measurement for coordinate system {coord_sys_id} and feature ID {feature_id}: {error_message}")
 
     def process_twig(self, twig):
         stream_id = twig.stream_id

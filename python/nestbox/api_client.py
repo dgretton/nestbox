@@ -5,6 +5,7 @@ import requests
 from requests.adapters import BaseAdapter
 from requests.models import Response
 from urllib.parse import unquote, quote
+from typing import Any, Dict
 import json
 import time
 
@@ -70,6 +71,13 @@ class NestboxAPIClient:
         #print(f"API client received response from get_transform: {response}")
         return AlignmentResult.from_json(response.json())
 
+    def get_current_measurement(self, cs_guid: str, feature_id: str) -> Dict[str, Any]:
+        url = f'{self.base_url}/coordsys/{cs_guid}/measurement?feature={quote(feature_id)}'
+        response = self.session.get(url)
+        response.raise_for_status()
+        #print(f"API client received response from get_current_measurement: {response}")
+        return response.json()
+
     def create_stream(self, config):
         url = f'{self.base_url}/stream'
         response = self.session.post(url, json=config)
@@ -111,7 +119,10 @@ class CustomConnectionAdapter(BaseAdapter):
 
         # Use the socket_path to create your connection
         conn = self.connection_manager.create_connection(self.connection_config.type, self.connection_config)
-        conn.connect()
+        try:
+            conn.connect()
+        except FileNotFoundError: #TODO: catch other types of exception or raise custom exception inside connect()
+            raise ConnectionError("Is the nestbox daemon running?")
 
         # Convert requests' request to your format
         body = request.body.decode('utf-8') if request.body else ""

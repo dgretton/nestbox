@@ -1,7 +1,8 @@
 from nestbox.coordsystem import CoordinateSystem, CameraObserver, PointTrackerObserver
-from nestbox.aligner import AdamAligner
+from nestbox.aligner import AdamAligner, GradientAligner
 from nestbox.sim import SimEnvironment, RigidObject
 from nestbox.run_optimizer import run_optimizer
+from nestbox.feature import to_feature
 from visualizer import Visualizer
 import numpy as np
 import pyquaternion
@@ -82,13 +83,14 @@ if __name__ == "__main__":
         environment.add_rigidobject(origin_rigid_object((0, 0, 1)))
     else:
         if camera_demo:
-            environment.add_rigidobject(random_rigid_object(0))
+            environment.add_rigidobject(random_rigid_object(pos_diam=0))
         if tracker_demo:
             for _ in range(3):
                 environment.add_rigidobject(random_rigid_object())
 
     # Create an aligner and add some random coordinate systems
-    aligner = AdamAligner()
+    aligner = AdamAligner(temperature=10000)
+    # aligner = GradientAligner(learning_rate=.001)
     if simple:
         if camera_demo:
             aligner.add_coordinate_system(*init_simple_binocular_coordinate_system())
@@ -123,7 +125,9 @@ if __name__ == "__main__":
                         obs_points = environment.points_from_observer_perspective(obs, points) + np.random.normal(0, obs.variance**.5, (len(points), 3))
                         measurements = obs.measure({fid: pt for fid, pt in zip(rigidobject.get_feature_ids(), obs_points)})
                 elif isinstance(obs, CameraObserver):
-                    measurements = obs.measure(environment.project_to_image(obs, rigidobject.get_points_dict()))
+                    points_dict = {to_feature(str(k) + str(coord_sys.observers.index(obs))):v for k, v in rigidobject.get_points_dict().items()} # make unique keys for each observer so they can be in the same coordinate system
+                    print(points_dict)
+                    measurements = obs.measure(environment.project_to_image(obs, points_dict))
                 coord_sys.update_measurements(measurements)
 
     if "--visualize-graph" in sys.argv:

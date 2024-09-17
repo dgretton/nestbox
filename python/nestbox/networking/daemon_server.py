@@ -112,6 +112,17 @@ class AddMeasurementsResource(Resource):
         except Exception as e:
             return {"error": f"Failed to add measurements: {str(e)}"}, 500
 
+class GetCurrentMeasurementResource(Resource):
+    def get(self, cs):
+        feature_id = request.args.get('feature')
+        if not feature_id:
+            return {"error": "Missing feature parameter"}, 400
+        try:
+            measurement = global_daemon.get_current_measurement(cs, feature_id)
+            return measurement, 200
+        except Exception as e:
+            return {"error": f"Failed to get measurement: {str(e)}"}, 500
+
 class AlignmentActionResource(Resource):
     @validate_json()
     def post(self):
@@ -151,6 +162,7 @@ api.add_resource(CreateCoordSysResource, '/coordsys')
 api.add_resource(NameCoordSysResource, '/coordsys/<string:cs_guid>/name')
 api.add_resource(AddMeasurementResource, '/coordsys/<string:cs>/measurement')
 api.add_resource(AddMeasurementsResource, '/coordsys/<string:cs>/measurements')
+api.add_resource(GetCurrentMeasurementResource, '/coordsys/<string:cs>/measurement')
 api.add_resource(AlignmentActionResource, '/alignment')
 api.add_resource(GetTransformResource, '/transforms/<string:relation>/<string:source_cs>/to/<string:target_cs>')
 
