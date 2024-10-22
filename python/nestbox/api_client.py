@@ -5,7 +5,7 @@ import requests
 from requests.adapters import BaseAdapter
 from requests.models import Response
 from urllib.parse import unquote, quote
-from typing import Any, Dict
+from typing import Any, Dict, List
 import json
 import time
 
@@ -36,8 +36,19 @@ class NestboxAPIClient:
         #print(f"API client received response from name_coordinate_system: {response}")
         return response.json()
 
-    def add_normal_measurement(self, feature, cs, mean, covariance, dimensions, is_homogeneous):
+    def add_normal_measurement(self, feature: str, cs: str, mean: List[float], covariance: List[List[float]], dimensions, is_homogeneous):
         url = f'{self.base_url}/coordsys/{cs}/measurement'
+        numeric = (int, float)
+        if not isinstance(mean, list):
+            raise ValueError("mean must be a list of floats")
+        if not isinstance(covariance, list):
+            raise ValueError("covariance must be a list of lists of floats")
+        if not all(isinstance(x, numeric) for x in mean):
+            raise ValueError(f"mean must be a list of floats, got {mean}")
+        if not all(isinstance(row, list) for row in covariance):
+            raise ValueError(f"covariance must be a list of lists of floats, got {covariance}")
+        if not all(all(isinstance(x, numeric) for x in row) for row in covariance):
+            raise ValueError(f"covariance must be a list of lists of floats, got {covariance}")
         response = self.session.post(url, json={
             "type": "NormalMeasurement",
             "feature": feature,

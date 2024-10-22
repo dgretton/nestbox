@@ -199,7 +199,6 @@ class _DaemonLocalAlignerServer(ServerInterface):
             cs_guid = request['cs_guid']
             coord_sys = CoordinateSystem(name=cs_guid)
             self.aligner.add_coordinate_system(coord_sys)
-            print('HOLY SH*T WE ACTUALLY INITIALIZED A COORDINATE SYSTEM ALL THE WAAAAY')
             success()
         elif request_type == 'add_measurements':
             cs_guid = request['cs_guid']
@@ -224,19 +223,22 @@ class _DaemonLocalAlignerServer(ServerInterface):
         elif request_type == 'get_current_measurement':
             cs_guid = request['cs_guid']
             feature_id = request['feature_id']
-            measurement = self.aligner_manager.get_current_measurement(cs_guid, feature_id)
-            if isinstance(measurement, NormalMeasurement):
-                meas_json = {
-                    "type": "NormalMeasurement",
-                    "feature": str(measurement.feature),
-                    "mean": measurement.mean,
-                    "covariance": measurement.covariance,
-                    "dimensions": measurement.dimensions,
-                    "is_homogeneous": measurement.is_homogeneous
-                }
-            else:
-                raise ValueError(f"Unsupported measurement type: {type(measurement)}")
-            response.update({"status": "success", "measurement": meas_json})
+            try:
+                measurement = self.aligner_manager.get_current_measurement(cs_guid, feature_id)
+                if isinstance(measurement, NormalMeasurement):
+                    meas_json = {
+                        "type": "NormalMeasurement",
+                        "feature": str(measurement.feature),
+                        "mean": measurement.mean,
+                        "covariance": measurement.covariance,
+                        "dimensions": measurement.dimensions,
+                        "is_homogeneous": measurement.is_homogeneous
+                    }
+                else:
+                    raise ValueError(f"Unsupported measurement type: {type(measurement)}")
+                response.update({"status": "success", "measurement": meas_json})
+            except ValueError as e:
+                response.update({"status": "error", "message": str(e)})
         elif request_type == 'add_twig':
             #data in bytes is base64 encoded in field twig_data
             data64 = request['twig_data']

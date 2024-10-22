@@ -1,4 +1,10 @@
 # =========================
+# Custom
+
+concatenate_source_code.sh
+concatenated_source_code.txt
+
+# =========================
 # OS detritus
 
 # Windows image file caches
@@ -11,6 +17,10 @@ $RECYCLE.BIN/
 # Mac desktop service store files
 .DS_Store
 _NCrunch*
+
+# =========================
+# Source & Dev
+
 # Logs
 logs
 *.log
