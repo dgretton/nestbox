@@ -14,7 +14,7 @@ network:
 
 aligner:
   type: "adam"
-  learning_rate: 0.01
+  learning_rate: 0.1
 
 peer_discovery:
   temp_live_data_shim_address: "10.1.20.59:12345"
