@@ -1,6 +1,7 @@
 import numpy as np
 import pyquaternion
 import torch
+from typing import Union
 
 def transform_point(origin, quaternion, point):
     origin = coerce_numpy(origin)
@@ -79,3 +80,82 @@ def covariance_to_upper_triangle(covariance):
                 raise ValueError("Covariance matrix is not symmetric")
             idx += 1
     return upper_triangle
+
+
+class SE3Transform:
+    def __init__(self, position: np.ndarray, orientation: Union[np.ndarray, 'Quaternion']):
+        """Create an SE(3) transform from position and orientation.
+
+        Args:
+            position: Length 3 array representing translation
+            orientation: Either a 3x3 rotation matrix or quaternion
+        """
+        self.position = np.asarray(position, dtype=np.float64)
+        if self.position.shape != (3,):
+            raise ValueError(f"Position must be length 3, got shape {self.position.shape}")
+
+        # Convert orientation to 3x3 rotation matrix if needed
+        if hasattr(orientation, 'rotation_matrix'):  # Quaternion case
+            R = orientation.rotation_matrix
+        else:
+            R = np.asarray(orientation, dtype=np.float64)
+            if R.shape != (3, 3):
+                raise ValueError(f"Rotation matrix must be 3x3, got shape {R.shape}")
+
+        # Validate rotation matrix properties
+        if not np.allclose(R @ R.T, np.eye(3), rtol=1e-5):
+            raise ValueError("Matrix is not orthogonal")
+        if not np.allclose(np.linalg.det(R), 1.0, rtol=1e-5):
+            raise ValueError("Matrix has determinant != 1")
+
+        # Create and store the 4x4 transform matrix
+        self._matrix = np.eye(4)
+        self._matrix[:3, :3] = R
+        self._matrix[:3, 3] = self.position
+
+    def transform_points(self, points: np.ndarray) -> np.ndarray:
+        """Transform one or more points by this SE(3) transform.
+
+        Args:
+            points: Array of shape (n, 3) or (3,) containing points to transform
+
+        Returns:
+            Array of transformed points with same shape as input
+        """
+        points = np.asarray(points)
+        single_point = False
+        if points.shape == (3,):
+            points = points[np.newaxis, :]
+            single_point = True
+
+        # Convert to homogeneous coordinates
+        homogeneous = np.ones((len(points), 4))
+        homogeneous[:, :3] = points
+
+        # Transform and convert back
+        transformed = (self._matrix @ homogeneous.T).T[:, :3]
+
+        return transformed[0] if single_point else transformed
+
+    def compose(self, other: 'SE3Transform') -> 'SE3Transform':
+        """Compose this transform with another, returning a new transform."""
+        matrix = self._matrix @ other._matrix
+        return SE3Transform(matrix[:3, 3], matrix[:3, :3])
+
+    @property 
+    def rotation_matrix(self) -> np.ndarray:
+        """Get the 3x3 rotation component."""
+        return self._matrix[:3, :3]
+
+    @property
+    def matrix(self) -> np.ndarray:
+        """Get the full 4x4 transform matrix."""
+        return self._matrix.copy()  # Return copy to prevent modification
+
+    def inverse(self) -> 'SE3Transform':
+        """Return the inverse transform."""
+        R = self.rotation_matrix
+        inv_matrix = np.eye(4) 
+        inv_matrix[:3, :3] = R.T
+        inv_matrix[:3, 3] = -R.T @ self.position
+        return SE3Transform(inv_matrix[:3, 3], inv_matrix[:3, :3])
