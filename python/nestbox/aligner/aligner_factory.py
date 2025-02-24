@@ -6,7 +6,10 @@ class AlignerFactory:
         aligner_type = aligner_config['type']
         lr = aligner_config['learning_rate']
         if aligner_type == 'adam':
-            aligner = AdamAligner(learning_rate=lr, beta1=aligner_config['beta1'], beta2=aligner_config['beta2'], temperature=aligner_config['temperature'])
+            aligner = AdamAligner(learning_rate=lr,
+                                beta1=aligner_config['beta1'],
+                                beta2=aligner_config['beta2'],
+                                temperature=aligner_config['temperature'])
         elif aligner_type == 'gradient':
             return GradientAligner(learning_rate=lr)
         else:

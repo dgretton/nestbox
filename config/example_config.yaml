@@ -14,7 +14,11 @@ network:
 
 aligner:
   type: "adam"
-  learning_rate: 0.1
+  learning_rate: 0.01
+  beta1: 0.9
+  beta2: 0.999
+  epsilon: 1e-8
+  temperature: 20
 
 peer_discovery:
   temp_live_data_shim_address: "10.1.20.59:12345"

@@ -86,10 +86,10 @@ class AsyncResponseHandler:
 
 
 class _DaemonLocalAlignerServer(ServerInterface):
-    def __init__(self, server_connection):
+    def __init__(self, server_connection, aligner_config):
         assert isinstance(server_connection, ServerConnectionInterface)
         self._server_connection = server_connection
-        self.aligner_manager = AlignerManager({'type': 'adam', 'learning_rate': 0.01, 'beta1': 0.9, 'beta2': 0.999, 'epsilon': 1e-8, 'temperature': 20})
+        self.aligner_manager = AlignerManager(aligner_config)
         #self.aligner_manager = AlignerManager({'type': 'gradient', 'learning_rate': 0.01})
         self.aligner_thread = threading.Thread(target=self._run_aligner, daemon=True)
         #self.aligner_thread.start() #TODO: remove, should wait until receiving aligner start request
@@ -329,10 +329,10 @@ class DaemonLocalAsyncResponseHandler(AsyncResponseHandler):
             callback()
 
 class DaemonLocalAlignerClient(AlignerClientInterface):
-    def __init__(self, config):
+    def __init__(self, aligner_config):
         self._connection, aligner_server_conn = QueueConnectionPair().get_connection_pair()
         server_conn = SingleServerConnection(aligner_server_conn)
-        server = _DaemonLocalAlignerServer(server_conn)
+        server = _DaemonLocalAlignerServer(server_conn, aligner_config)
         server.start()
         self._connection.connect()
         self.handler = DaemonLocalAsyncResponseHandler(self._connection)
