@@ -8,3 +8,5 @@ Flask-SocketIO==5.3.6
 redis>=5.0.4
 pyquaternion>=0.9.5
 requests>=2.25.0
+scikit-learn>=1.6.1
+matplotlib>=3.10.0

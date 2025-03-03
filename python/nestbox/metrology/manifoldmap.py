@@ -5,9 +5,10 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.linear_model import LinearRegression
 from scipy.interpolate import LinearNDInterpolator
 from scipy.linalg import orthogonal_procrustes
+from scipy.spatial.transform import Rotation
 from pyquaternion import Quaternion
 
-from ..numutil import SE3Transform
+from nestbox.numutil import SE3Transform
 
 class ManifoldPointMapper(ABC):
     def __init__(self):
@@ -207,20 +208,15 @@ class DirectPoseMapper(ManifoldPoseMapper):
         Returns:
             3D rotation vector (axis * angle)
         """
-        # Rotation angle from trace
+        # Small rotation might result in singularity case, so return zero vector
         theta = np.arccos((np.trace(R) - 1) / 2)
-        
         if np.abs(theta) < 1e-10:  # Identity rotation
             return np.zeros(3)
-        
-        # Rotation axis from skew-symmetric part
-        axis = np.array([
-            R[2,1] - R[1,2],
-            R[0,2] - R[2,0],
-            R[1,0] - R[0,1]
-        ]) / (2 * np.sin(theta))
-        
-        return theta * axis
+
+        # Create Rotation object from matrix
+        rot = Rotation.from_matrix(R)
+        # Convert to rotation vector (axis-angle representation)
+        return rot.as_rotvec()
 
     def _lie_algebra_to_rotation(self, w: np.ndarray) -> np.ndarray:
         """Convert lie algebra element (rotation vector) to rotation matrix.
@@ -230,17 +226,8 @@ class DirectPoseMapper(ManifoldPoseMapper):
         Returns:
             3x3 rotation matrix
         """
-        theta = np.linalg.norm(w)
-        if theta < 1e-10:
-            return np.eye(3)
-            
-        axis = w / theta
-        K = np.array([[0, -axis[2], axis[1]],
-                      [axis[2], 0, -axis[0]],
-                      [-axis[1], axis[0], 0]])
-        
-        return (np.eye(3) + np.sin(theta) * K + 
-                (1 - np.cos(theta)) * (K @ K))
+        rot = Rotation.from_rotvec(w)
+        return rot.as_matrix()
 
     def _check_rotation_distances(self, rotations: List[np.ndarray]) -> float:
         """Check maximum angular difference between any pair of rotations.
@@ -253,13 +240,13 @@ class DirectPoseMapper(ManifoldPoseMapper):
             for R2 in rotations[i+1:]:
                 # Relative rotation R1^T @ R2
                 R_diff = R1.T @ R2
-                angle = np.arccos((np.trace(R_diff) - 1) / 2)
+                angle = np.arccos(np.clip((np.trace(R_diff) - 1) / 2, -1.0, 1.0))
                 max_angle = max(max_angle, angle)
         return max_angle
 
     def interpolate(self, query_point: np.ndarray) -> SE3Transform:
         # Interpolate position
-        position = self.position_interpolator(query_point)
+        position = self.position_interpolator(query_point).flatten()
         
         # Find k nearest neighbors
         k = min(4, len(self.poses))
@@ -277,22 +264,32 @@ class DirectPoseMapper(ManifoldPoseMapper):
                 f"Interpolation may be unreliable."
             )
         
-        # Convert to lie algebra
-        rot_vecs = [self._rotation_to_lie_algebra(R) for R in rotations]
+        # Choose the first rotation as reference
+        R_ref = rotations[0]
         
-        # Calculate weights
+        # Express all rotations relative to the reference in axis-angle form
+        # This puts us in the tangent space at R_ref, avoiding periodicity issues
+        relative_rotvecs = []
+        for R in rotations:
+            # Note that R_ref.T is the inverse of R_ref
+            R_rel = R @ R_ref.T
+            relative_rotvecs.append(self._rotation_to_lie_algebra(R_rel))
+
+        print(relative_rotvecs)
+        
+        # Calculate weights based on inverse distance
         eps = 1e-10
         distances = np.maximum(distances, eps)
         weights = 1.0 / distances
         weights = weights / np.sum(weights)
         
-        # Weighted average in lie algebra
-        avg_vec = np.sum([w * vec for w, vec in zip(weights, rot_vecs)], axis=0)
+        # Weighted average of the relative rotation vectors
+        avg_rotvec = np.sum([w * vec for w, vec in zip(weights, relative_rotvecs)], axis=0)
         
-        # Convert back to rotation matrix
-        rotation = self._lie_algebra_to_rotation(avg_vec)
+        # Apply the average relative rotation to the reference rotation
+        R_result = self._lie_algebra_to_rotation(avg_rotvec) @ R_ref
         
-        return SE3Transform(position, rotation)
+        return SE3Transform(position, R_result)
 
 
 # Usage example:
