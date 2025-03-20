@@ -1,7 +1,11 @@
+import copy
 import json
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Dict
+
 from mpl_toolkits.mplot3d import Axes3D
+
 from nestbox.metrology.manifoldmap import PolynomialMapper, LerpMapper
 
 """
@@ -11,28 +15,68 @@ For each of the 20 hand tracking markers, create a polynomial fit using 143 trac
 points. Then, use the polynomial fit to resample the points.
 """
 
+def process_all_data(data) -> Dict:
+    # num_unique_tracking_points = len(next(iter(data["measurements"].values()))["vr_tracking_points"])
+    data_copy = copy.deepcopy(data)
+
+    source_points = np.array([value["setpoint"] for value in data_copy["measurements"].values()])
+    tracking_points = [value["vr_tracking_points"] for value in data_copy["measurements"].values()]
+    # Loop through 20 times
+    for i, unique_tracking_point_array in enumerate(zip(*tracking_points)):
+        # This np array has size: 143 x 3
+        unique_tracking_point_array = np.array(unique_tracking_point_array)
+        poly_mapper = PolynomialMapper(degree=20)
+        poly_result = poly_mapper.fit_map(source_points, unique_tracking_point_array, source_points)
+        # Now loop through all the measurements and replace the tracking points at index i with the new points
+        for j, value in enumerate(data_copy["measurements"].values()):
+            value["vr_tracking_points"][i] = poly_result[j].tolist()
+    return data_copy
+    with open("resampled_data.json", "w") as f:
+        json.dump(data, f, indent=2)
+
+def resample_points(file_path):
+    with open(file_path, "r") as f:
+        data = json.load(f)
+    return process_all_data(data)
+
 # Usage example:
 if __name__ == "__main__":
-    with open("calibration_data.json", "r") as f:
+    new_data = resample_points("measurement_data.json")
+    with open("resampled_data.json", "w") as f:
+        json.dump(new_data, f, indent=2)
+
+    with open("measurement_data.json", "r") as f:
         data = json.load(f)
     
+    # process_all_data(data)
+    i = 0
     source_points = []
     for key, value in data["measurements"].items():
-        source_points.append(value["vr_tracking_points"][0])
+        if i < 143:
+            source_points.append(value["setpoint"])
+        i += 1
     source_points = np.array(source_points)
-    source_points = np.array([data["measurements"]["2_4_1"]["vr_root_point"]])
     print(source_points)
 
+    i = 0
     target_points = []
+    finger_points = []
+    end_effector_points = []
     for key, value in data["measurements"].items():
-        target_points.append(value["vr_tracking_points"][15])
+        if i < 143:
+            target_points.append(value["vr_root_point"])
+            end_effector_points.append(value["vr_tracking_points"][10])
+        if i % 10 == 0:
+            finger_points.extend(value["vr_tracking_points"])
+        i += 1
     target_points = np.array(target_points)
-    target_points = np.array(data["measurements"]["2_4_1"]["vr_tracking_points"])
+    finger_points = np.array(finger_points)
+    end_effector_points = np.array(end_effector_points)
     print(target_points)
 
-    # poly_mapper = PolynomialMapper(degree=4)
-    # poly_result = poly_mapper.fit_map(source_points, target_points, source_points)
-    # print("Polynomial Mapper Result:", poly_result.shape)
+    poly_mapper = PolynomialMapper(degree=4)
+    poly_result = poly_mapper.fit_map(source_points, end_effector_points, source_points)
+    print("Polynomial Mapper Result:", poly_result.shape)
 
     # Visualization
     fig = plt.figure(figsize=(12, 10))
@@ -43,6 +87,19 @@ if __name__ == "__main__":
 
     # Plot target points
     ax.scatter(target_points[:, 0], target_points[:, 1], target_points[:, 2], c='red', label='Target', alpha=0.6)
+
+    # Plot finger points
+    ax.scatter(finger_points[:, 0], finger_points[:, 1], finger_points[:, 2], c='green', label='Finger', alpha=0.6)
+
+    # Plot end effector points
+    ax.scatter(poly_result[:, 0], poly_result[:, 1], poly_result[:, 2], c='black', label='End Effector', alpha=0.6)
+
+
+    # other_root = np.array(data["measurements"]["6_9_1"]["vr_root_point"])
+    # ax.scatter(other_root[0], other_root[1], other_root[2], c='yellow', label='Other Root', alpha=0.6)
+
+    # other_points = np.array(data["measurements"]["6_9_1"]["vr_tracking_points"])
+    # ax.scatter(other_points[:, 0], other_points[:, 1], other_points[:, 2], c='green', label='Other', alpha=0.6)
 
     # # Plot new points and their mappings
     # ax.scatter(poly_result[:, 0], poly_result[:, 1], poly_result[:, 2], c='purple', s=100, label='Polynomial Map')
@@ -81,6 +138,12 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
+
+
+
+
+
+
 
     # # Generate some sample 3D data
     # oneaxis = 4
