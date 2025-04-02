@@ -25,7 +25,7 @@ def process_all_data(data) -> Dict:
     for i, unique_tracking_point_array in enumerate(zip(*tracking_points)):
         # This np array has size: 143 x 3
         unique_tracking_point_array = np.array(unique_tracking_point_array)
-        poly_mapper = PolynomialMapper(degree=20)
+        poly_mapper = PolynomialMapper(degree=4)
         poly_result = poly_mapper.fit_map(source_points, unique_tracking_point_array, source_points)
         # Now loop through all the measurements and replace the tracking points at index i with the new points
         for j, value in enumerate(data_copy["measurements"].values()):
@@ -41,9 +41,9 @@ def resample_points(input_file_path: str, output_file_path: str) -> None:
 
 # Usage example of plotting data
 if __name__ == "__main__":
-    resample_points("measurement_data.json", "resampled_data.json")
+    resample_points("measurement_data.json", "regularized_data.json")
 
-    with open("resampled_data.json", "r") as f:
+    with open("regularized_data.json", "r") as f:
         data = json.load(f)
     
     # process_all_data(data)
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     for key, value in data["measurements"].items():
         if i < 143:
             target_points.append(value["vr_root_point"])
-            end_effector_points.append(value["vr_tracking_points"][10])
+            end_effector_points.append(value["vr_tracking_points"][3])
         if i % 10 == 0:
             finger_points.extend(value["vr_tracking_points"])
         i += 1
@@ -87,10 +87,10 @@ if __name__ == "__main__":
     ax.scatter(target_points[:, 0], target_points[:, 1], target_points[:, 2], c='red', label='Target', alpha=0.6)
 
     # Plot finger points
-    ax.scatter(finger_points[:, 0], finger_points[:, 1], finger_points[:, 2], c='green', label='Finger', alpha=0.6)
+    # ax.scatter(finger_points[:, 0], finger_points[:, 1], finger_points[:, 2], c='green', label='Finger', alpha=0.6)
 
     # Plot end effector points
-    ax.scatter(poly_result[:, 0], poly_result[:, 1], poly_result[:, 2], c='black', label='End Effector', alpha=0.6)
+    # ax.scatter(poly_result[:, 0], poly_result[:, 1], poly_result[:, 2], c='black', label='End Effector', alpha=0.6)
 
 
     # other_root = np.array(data["measurements"]["6_9_1"]["vr_root_point"])
