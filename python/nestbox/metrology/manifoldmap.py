@@ -136,7 +136,13 @@ class ProcrustesBasedPoseExtractor(PoseExtractor):
         if not np.allclose(np.linalg.det(R), 1.0, rtol=1e-5):
             raise ValueError("Matrix has determinant != 1")
 
-        return SE3Transform(centroid, R)
+        # Calculate the correct translation: 
+        # We want: reference_points -> R @ reference_points + t = point_set
+        # After centering and rotating: R @ (reference_points - ref_centroid) + (t + R @ ref_centroid) = point_set
+        # So: t = centroid - R @ self._ref_centroid
+        translation = centroid - R @ self._ref_centroid
+
+        return SE3Transform(translation, R)
 
 
 class ManifoldPoseMapper(ABC):

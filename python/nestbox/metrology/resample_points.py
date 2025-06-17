@@ -63,7 +63,7 @@ if __name__ == "__main__":
     for key, value in data["measurements"].items():
         if i < 143:
             target_points.append(value["vr_root_point"])
-            end_effector_points.append(value["vr_tracking_points"][3])
+            end_effector_points.append(value["vr_tracking_points"][10])
         if i % 10 == 0:
             finger_points.extend(value["vr_tracking_points"])
         i += 1
@@ -84,13 +84,13 @@ if __name__ == "__main__":
     ax.scatter(source_points[:, 0], source_points[:, 1], source_points[:, 2], c='blue', label='Source', alpha=0.6)
 
     # Plot target points
-    ax.scatter(target_points[:, 0], target_points[:, 1], target_points[:, 2], c='red', label='Target', alpha=0.6)
+    # ax.scatter(target_points[:, 0], target_points[:, 1], target_points[:, 2], c='red', label='Target', alpha=0.6)
 
     # Plot finger points
-    # ax.scatter(finger_points[:, 0], finger_points[:, 1], finger_points[:, 2], c='green', label='Finger', alpha=0.6)
+    ax.scatter(finger_points[:, 0], finger_points[:, 1], finger_points[:, 2], c='green', label='Finger', alpha=0.6)
 
     # Plot end effector points
-    # ax.scatter(poly_result[:, 0], poly_result[:, 1], poly_result[:, 2], c='black', label='End Effector', alpha=0.6)
+    ax.scatter(poly_result[:, 0], poly_result[:, 1], poly_result[:, 2], c='black', label='End Effector', alpha=0.6)
 
 
     # other_root = np.array(data["measurements"]["6_9_1"]["vr_root_point"])
