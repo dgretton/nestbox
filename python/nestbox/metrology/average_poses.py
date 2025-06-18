@@ -58,6 +58,7 @@ def print_pose_info(pose, label="Pose"):
     print(f"  Euler Angles (xyz, degrees): {euler_angles}")
     print("-" * 50)
 
+# Usage example of averaging poses and plotting
 def main():
     # Create simple test data with 4 poses
     positions, poses = create_simple_test_data(size=1.0)
