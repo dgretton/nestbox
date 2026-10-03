@@ -93,16 +93,23 @@ class NestboxDaemon:
         future = self.executor.submit(self.aligner_client.get_current_measurement, cs_guid, feature_id)
         return future.result()['measurement']
 
+    def pin_coordsys(self, cs):
+        cs_guid = self.resolve_cs_name(cs)
+        future = self.executor.submit(self.aligner_client.pin_coordinate_system, cs_guid)
+        return future.result()
+
     def start_aligner(self):
         future = self.executor.submit(self.aligner_client.start_alignment)
         return future.result()
 
     def get_basis_change_transform(self, source_cs, target_cs):
-        print('Daemon: get_basis_change_transform called.')
         source_guid = self.resolve_cs_name(source_cs)
         target_guid = self.resolve_cs_name(target_cs)
         future = self.executor.submit(self.aligner_client.get_basis_change_transform, source_guid, target_guid)
-        return future.result()['transform']
+        result = future.result()
+        if result['status'] != 'success':
+            raise ValueError(result.get('message', 'unknown error'))
+        return result['transform']
 
     def add_measurements_convoluted(self, cs, measurements):
         cs_guid = self.resolve_cs_name(cs)
@@ -246,14 +253,12 @@ class NestboxDaemon:
         pass
 
     def resolve_cs_name(self, cs):
-        print(f"Resolving coordinate system name: {cs}")
         try:
             cs_guid = self.coordsys_names.get_guid(cs)
             if cs_guid is not None:
                 return cs_guid
         except KeyError:
             pass
-        print(f"Coordinate system name not found, returning {cs} unchanged")
         return cs
 
     def process_request(self, request):

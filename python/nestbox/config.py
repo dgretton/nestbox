@@ -1,5 +1,5 @@
 from .networking import ConnectionConfig
-from os import path
+from os import path, environ
 import yaml
 import sys
 # go get connection details from ../../config/example_config.yaml
@@ -15,12 +15,16 @@ def resource_path(relative_path):
         base_path = path.dirname(__file__) + "/../.."
     return path.join(base_path, relative_path)
 
-config_path = resource_path("config/example_config.yaml")
+def daemon_conn_config(config):
+    """Build the daemon ConnectionConfig from a loaded config dict (its 'daemon' section)."""
+    dconfig = config['daemon']
+    address = path.expanduser(dconfig['server_address'])
+    port = dconfig.get('port', None)
+    return ConnectionConfig(dconfig['server_type'], address=address, port=port)
+
+# NESTBOX_CONFIG overrides the default config file, for both the daemon and API clients
+config_path = path.expanduser(environ.get('NESTBOX_CONFIG', resource_path("config/example_config.yaml")))
 with open(config_path, 'r') as stream:
-    dconfig = yaml.safe_load(stream)['daemon']
-daemon_conn_type = dconfig['server_type']
-address = path.expanduser(dconfig['server_address'])
-port = dconfig.get('port', None)
-DAEMON_CONN_CONFIG = ConnectionConfig(daemon_conn_type, address=address, port=port)
+    DAEMON_CONN_CONFIG = daemon_conn_config(yaml.safe_load(stream))
 
 #TODO: This source file config.py will contain some utility functions for getting configs from the correct place modulo detected operating system

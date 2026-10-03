@@ -87,6 +87,16 @@ class NameCoordSysResource(Resource):
         except Exception as e:
             return {"error": f"Failed to name coordinate system: {str(e)}"}, 500
 
+class PinCoordSysResource(Resource):
+    def put(self, cs):
+        try:
+            result = global_daemon.pin_coordsys(cs)
+            if result['status'] != 'success':
+                return {"error": f"Failed to pin coordinate system: {result.get('message')}"}, 500
+            return {"message": "Coordinate system pinned"}, 200
+        except Exception as e:
+            return {"error": f"Failed to pin coordinate system: {str(e)}"}, 500
+
 class AddMeasurementResource(Resource):
     @validate_json()
     def post(self, cs):
@@ -146,20 +156,17 @@ class GetTransformResource(Resource):
     #@validate_json()
     def get(self, relation, source_cs, target_cs):
         try:
-            print('-- GetTransformResource --')
-            print(f'GetTransformResource: GET called. source_cs: {source_cs}, target_cs: {target_cs}')
             if relation == 'convert':
                 transform = global_daemon.get_basis_change_transform(source_cs, target_cs)
             else:
                 return {"error": f"Resource not found: invalid transform relation type: {relation}"}, 404
-            print('Transform received.')
-            print(transform)
             return transform, 200
         except Exception as e:
             return {"error": f"Failed to get transform: {str(e)}"}, 500
 
 api.add_resource(CreateCoordSysResource, '/coordsys')
 api.add_resource(NameCoordSysResource, '/coordsys/<string:cs_guid>/name')
+api.add_resource(PinCoordSysResource, '/coordsys/<string:cs>/pin')
 api.add_resource(AddMeasurementResource, '/coordsys/<string:cs>/measurement')
 api.add_resource(AddMeasurementsResource, '/coordsys/<string:cs>/measurements')
 api.add_resource(GetCurrentMeasurementResource, '/coordsys/<string:cs>/measurement')
@@ -248,7 +255,7 @@ if __name__ == '__main__':
     import argparse
     import sys
     from os import path
-    from nestbox.config import resource_path, DAEMON_CONN_CONFIG as conn
+    from nestbox.config import config_path, daemon_conn_config
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--config-path", required=False, help="Path to the configuration file")
@@ -256,11 +263,18 @@ if __name__ == '__main__':
     args = ap.parse_args()
 
     if args.config_path is None:
-        args.config_path = resource_path("config/example_config.yaml")
+        args.config_path = config_path
     with open(args.config_path, 'r') as file:
         config = yaml.safe_load(file)
+    conn = daemon_conn_config(config)
+    if path.abspath(args.config_path) != path.abspath(config_path):
+        print(f"Note: API clients read {config_path}; set NESTBOX_CONFIG={args.config_path} for them to reach this daemon")
     
     global_daemon.initialize(config)
+
+    # per-request access logs drown everything else once a client polls transforms
+    import logging
+    logging.getLogger('werkzeug').setLevel(logging.WARNING)
     
     if conn.type == 'unix_socket':
         socket_path = conn.address
@@ -269,7 +283,7 @@ if __name__ == '__main__':
         socket_dir = os.path.dirname(socket_path)
         if not os.path.exists(socket_dir):
             try:
-                os.makedirs("~/.nestbox/socket")
+                os.makedirs(socket_dir)
             except:
                 raise FileNotFoundError(f"Directory for Unix socket does not exist: {socket_dir}")
 

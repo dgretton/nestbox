@@ -79,7 +79,7 @@ class Aligner:
                         self.pinned_cs_idx = i
                         return
             if isinstance(coord_sys, CoordinateSystem):
-                coord_sys = self.coordinate_systems.index(coord_sys)
+                self.pinned_cs_idx = self.coordinate_systems.index(coord_sys)
                 return
             if isinstance(coord_sys, int):
                 self.pinned_cs_idx = coord_sys

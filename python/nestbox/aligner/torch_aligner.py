@@ -7,7 +7,7 @@ from ..coordsystem import NormalMeasurement
 
 
 class TorchAligner(Aligner):
-    def __init__(self, *args, datatype='float64', **kwargs):
+    def __init__(self, *args, datatype='float64', device='cpu', **kwargs):
         super().__init__(*args, **kwargs)
         # Convert string datatype to actual torch datatype
         if datatype == 'float32':
@@ -16,8 +16,13 @@ class TorchAligner(Aligner):
             self.dtype = torch.float64
         else:
             raise ValueError(f"Unsupported datatype: {datatype}. Use 'float32' or 'float64'")
+        # GPU selection is opt-in (device: auto in the aligner config): the model still mixes CPU-built
+        # tensors and .numpy() calls with self.device, so mps fails on the first step. CPU is plenty for
+        # a handful of coordinate systems.
         self.device = None
-        if torch.cuda.is_available():
+        if device != 'auto':
+            self.device = torch.device(device)
+        elif torch.cuda.is_available():
             self.device = torch.device('cuda')
         else:
             try:

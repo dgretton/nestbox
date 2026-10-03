@@ -37,6 +37,9 @@ def add_measurements(cs_guid, measurements):
 def get_current_measurement(cs, feature):
     return _get_client().get_current_measurement(cs, feature)
 
+def pin(cs):
+    return _get_client().pin_coordinate_system(cs)
+
 def start_alignment():
     return _get_client().start_alignment()
 

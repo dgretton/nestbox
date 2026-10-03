@@ -4,6 +4,7 @@ import json
 import uuid
 import base64
 import time
+import traceback
 from typing import Dict, Any, List
 from nestbox.interfaces import AlignerClientInterface, ConnectionInterface, AlignmentResultInterface, ServerInterface, ServerConnectionInterface
 from nestbox.networking import QueueConnectionPair
@@ -52,7 +53,6 @@ class AsyncResponseHandler:
         self.running = False
 
     def send_request(self, request_type, request_data, callback=None):
-        print(f"Sending async message handler request: {request_type}")
         request_id = self.generate_request_id()
         request = {
             "type": request_type,
@@ -62,11 +62,9 @@ class AsyncResponseHandler:
         self.pending_requests[request_id] = request
         if callback is not None:
             self.callbacks[request_id] = callback
-        print(f"really right about to send async message handler request: {request}")
         if not self._connection.is_connected():
             self._connection.connect()
         self._connection.send(json.dumps(request).encode())
-        print(f"Sent async message handler request: {request}")
         return request_id
 
     def handle_response(self, response):
@@ -139,10 +137,6 @@ class _DaemonLocalAlignerServer(ServerInterface):
         visualizer = Visualizer(self.aligner)
 
         def callback(aligner):
-            for _, origin, orientation in aligner.iterate_coordinate_systems():
-                    print(_.name)
-                    print(f"    current coordinate system position: {origin}")
-                    print(f"    current coordinate system orientation: {orientation}")
             # Send optimization state to Redis
             visualizer.draw()
             state = visualizer.state()
@@ -169,20 +163,24 @@ class _DaemonLocalAlignerServer(ServerInterface):
         if not connection.is_connected():
             connection.connect()
         while self._server_connection.is_connected():
-            print(f"receiving data from connection: {connection.connection_info}")
             request_data = connection.receive()
-            print("data received")
             if request_data:
-                # Process data
-                response = self.process_data(request_data)
+                # Process data. This is the only connection to the aligner, so a request that raises must
+                # not kill this thread, or every later request hangs.
+                try:
+                    response = self.process_data(request_data)
+                except Exception as e:
+                    traceback.print_exc()
+                    request = json.loads(request_data.decode())
+                    response = json.dumps({"type": "response", "request_type": request.get('type'),
+                                           "request_id": request.get('request_id'),
+                                           "status": "error", "message": str(e)}).encode()
                 connection.send(response)
             else:
                 connection.disconnect()
 
     def process_data(self, request_data: bytes) -> bytes:
-        print(f"Received request: {request_data}")
         request = json.loads(request_data.decode())
-        print(f"JSON request: {request}")
         request_type = request['type']
         response = {
             "type": "response",
@@ -194,7 +192,6 @@ class _DaemonLocalAlignerServer(ServerInterface):
         def success():
             response.update({"status": "success"})
 
-        print(f"Processing request type: {request_type}")
         if request_type == 'create_cs':
             cs_guid = request['cs_guid']
             coord_sys = CoordinateSystem(name=cs_guid)
@@ -260,11 +257,7 @@ class _DaemonLocalAlignerServer(ServerInterface):
         elif request_type == 'get_basis_change_transform':
             source_cs = request['source_cs']
             target_cs = request['target_cs']
-            print(f'LocalAlignerClient: getting basis change transform from {source_cs} to {target_cs}')
             transform = self.aligner.get_basis_change_transform(source_cs, target_cs)
-            print(f'Successfully got basis change transform:')
-            print(transform)
-            print(transform.to_json())
             response.update({"status": "success", "transform": transform.to_json()})
         elif request_type == 'cancel_alignment':
             pass
@@ -281,10 +274,11 @@ class _DaemonLocalAlignerServer(ServerInterface):
         elif request_type == 'delete_cs':
             pass
         elif request_type == 'pin':
-            pass
+            self.aligner.pin(request['cs_guid'])
+            success()
         elif request_type == 'unpin':
-            pass
-        print(f"Sending response from process_data: {response}")
+            self.aligner.reset_pin()
+            success()
         return json.dumps(response).encode()
 
 
@@ -361,8 +355,6 @@ class DaemonLocalAlignerClient(AlignerClientInterface):
         ({"type": "get_latest_alignments", "cs_guids": cs_guids})
         
     def get_basis_change_transform(self, source_cs_guid: str, target_cs_guid: str) -> Dict[str, Any]:
-        print('LocalAlignerClient: get_basis_change_transform called, sending "get_basis_change_transform" query to aligner\n'
-              f'source guid: {source_cs_guid}, target guid: {target_cs_guid}')
         return self._wait_for_callback_result('get_basis_change_transform', {"source_cs": source_cs_guid, "target_cs": target_cs_guid})
 
     def set_alignment_parameters(self, params: Dict[str, Any]) -> None:
@@ -389,10 +381,10 @@ class DaemonLocalAlignerClient(AlignerClientInterface):
         return self._wait_for_callback_result('add_twig', {"twig_data": base64.b64encode(twig_data).decode()})
 
     def pin_coordinate_system(self, cs_guid: str) -> str:
-        ({"type": "pin", "cs_guid": cs_guid})
+        return self._wait_for_callback_result('pin', {"cs_guid": cs_guid})
 
     def unpin_coordinate_system(self) -> str:
-        ({"type": "unpin"})
+        return self._wait_for_callback_result('unpin', {})
 
     def _wait_for_callback_result(self, *args, **kwargs):
         result = {'value': None}

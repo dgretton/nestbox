@@ -2,9 +2,16 @@ import socket
 import threading
 from nestbox.interfaces import ConnectionInterface
 from nestbox.protos import Twig
+from nestbox.handedness import mirror_point, mirror_covariance
 
 class LiveDataShim:
-    def __init__(self, connection: ConnectionInterface):
+    """Receives length-prefixed Twigs from the Quest (NestboxHand) and feeds them to the daemon.
+
+    Each hand Twig carries the raw OVRSkeleton.Bones positions in Unity world space, in OVR bone-ID order
+    (0 WristRoot ... 20 IndexTip, 21-23 Middle/Ring/PinkyTip). Points are named by bone ID, e.g.
+    nestbox:feature/hand/righthand/bone/20/position, and mirrored from Unity's left-handed frame (x -> -x).
+    """
+    def __init__(self, connection: ConnectionInterface, mirror_x=True):
         from nestbox.daemon import global_daemon
         self.global_daemon = global_daemon
         self.host = connection.connection_info['host'] # for simplicity for this patch just reconstruct the connection from the connection info
@@ -12,6 +19,7 @@ class LiveDataShim:
         self.server_socket = None
         self.running = False
         self.firsttime = True
+        self.mirror_x = mirror_x
 
     def start(self):
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -48,16 +56,16 @@ class LiveDataShim:
 
     def _receive_full_message(self, conn):
         # Read the length of the message (first 4 bytes)
-        length_data = conn.recv(4)
-        print(f"bytes representing the length of the message: {length_data}")
-        if not length_data:
-            return None
+        length_data = b''
+        while len(length_data) < 4:
+            packet = conn.recv(4 - len(length_data))
+            if not packet:
+                return None
+            length_data += packet
         message_length = int.from_bytes(length_data, byteorder='big') # RFC1700 says network byte order is big-endian
-        print(f"message_length: {message_length}")
         # Read the message data based on the length
         data = b''
         while len(data) < message_length:
-            print(f"message_length: {message_length}, len(data): {len(data)}, diff: {message_length - len(data)}")
             packet = conn.recv(message_length - len(data))
             if not packet:
                 return None
@@ -72,14 +80,12 @@ class LiveDataShim:
     def _twig_to_measurements(self, twig):
         measurements = []
         for ms in twig.measurement_sets: # better hope there is only one measurement set
-            features = [f"nestbox:feature/hand/{twig.stream_id}/root-pose/position"] # this whole thing is clearly a magic trash fire, but it's a start
-            # also record tracking point measurements of the form nestbox:feature/hand/lefthand/trackingpoint/0/position or /1/position etc from 0 to 19
-            for i in range(20):
-                features.append(f"nestbox:feature/hand/{twig.stream_id}/trackingpoint/{i}/position")
-            for feat, mean, cov in zip(features, ms.means, ms.covariances):
+            for bone_id, (mean, cov) in enumerate(zip(ms.means, ms.covariances)):
+                if self.mirror_x:
+                    mean, cov = mirror_point(mean), mirror_covariance(cov)
                 measurements.append({
                     "type": "NormalMeasurement",
-                    "feature": feat,
+                    "feature": f"nestbox:feature/hand/{twig.stream_id}/bone/{bone_id}/position",
                     "mean": mean.tolist(),
                     "covariance": cov.tolist(),
                     "dimensions": ms.dimensions,

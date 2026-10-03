@@ -12,6 +12,10 @@ import time
 class NestboxAPIClient:
     def __init__(self, connection_config: ConnectionConfigInterface):
         self.session = requests.Session()
+        if connection_config.type == 'tcp':
+            # daemon serves plain HTTP over TCP; requests handles it directly
+            self.base_url = f'http://{connection_config.address}:{connection_config.port}'
+            return
         adapter = CustomConnectionAdapter(ConnectionManager, connection_config)
         self.session.mount('http+unix://', adapter)
 
@@ -66,6 +70,12 @@ class NestboxAPIClient:
         response = self.session.post(url, json={"measurements": measurements})
         response.raise_for_status()
         #print(f"API client received response from add_measurements: {response}")
+        return response.json()
+
+    def pin_coordinate_system(self, cs):
+        url = f'{self.base_url}/coordsys/{cs}/pin'
+        response = self.session.put(url)
+        response.raise_for_status()
         return response.json()
 
     def start_alignment(self):

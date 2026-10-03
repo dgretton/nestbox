@@ -1,0 +1,33 @@
+# Arm demo config: daemon over TCP so the Quest can poll transforms (via `adb reverse tcp:8650 tcp:8650`).
+# Use with: NESTBOX_CONFIG=<repo>/config/armdemo_config.yaml (daemon and API clients both read it).
+network:
+  default_connection: localhost_tcp
+  connections:
+    localhost_tcp:
+      type: tcp
+      ip: 127.0.0.1
+      port: 12345
+
+aligner:
+  type: "adam"
+  learning_rate: 0.01
+  beta1: 0.9
+  beta2: 0.999
+  epsilon: 1e-8
+  temperature: 20
+  datatype: "float32"
+  device: "cpu"  # or cuda/mps/auto; GPU paths are not working yet
+
+peer_discovery:
+  # Quest hand stream (only used by the daemon's --live shim). follow_hand.py also wants this port; run one or the other.
+  temp_live_data_shim_address: "127.0.0.1:12345"
+
+daemon:
+  server_type: "tcp"
+  server_address: "127.0.0.1"
+  port: 8650
+
+database:
+  type: "redis"
+  host: "localhost"
+  port: 6379

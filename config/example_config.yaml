@@ -20,6 +20,7 @@ aligner:
   epsilon: 1e-8
   temperature: 20
   datatype: "float32"
+  device: "cpu"  # or cuda/mps/auto; GPU paths are not working yet
 
 peer_discovery:
   temp_live_data_shim_address: "10.1.20.59:12345"
