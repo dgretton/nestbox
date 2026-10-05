@@ -6,7 +6,7 @@ reading of the code, and should be checked.
 
 ## Status update (2026-10-03, second session, branch `armdemo`)
 
-`armdemo` = `main` + `torchgpu`, plus uncommitted fixes. All of the following was **verified** in a fresh venv
+`armdemo` = `main` + `torchgpu`, plus fixes (commit `7f3514f`). All of the following was **verified** in a fresh venv
 (`pip install -r python/requirements-armdemo.txt`):
 
 - **Plan step 1 done:** with the Unix socket, `test_toplevel_setup.py` gives cs1→cs2 `[2,3,4]` → `[-2.012, 0.981, 2.999]`.
@@ -31,8 +31,43 @@ reading of the code, and should be checked.
   and the test script. Use `adb reverse tcp:8650 tcp:8650`.
 - Gap 10: the `~` makedirs bug is fixed. Per-step and per-request prints and werkzeug access logs are quiet. Versions are pinned in `requirements-armdemo.txt`.
 
-**Still open:** plan steps 3–5, which are `follow_hand.py --nestbox` (outside this repo), the Unity `NestboxCoordinateBox`, and the
-history-ring re-drift. Also open: recording real raw calibration pairs, the port-12345 ownership choice (gap 3), and the GPU path.
+## Status update (2026-10-04, third session): deterministic aligner, and plan steps 3–4 done
+
+- **New aligner, `type: gauss_newton`** (`python/nestbox/aligner/gauss_newton_aligner.py`), now the default in
+  `config/armdemo_config.yaml`. The Adam aligner's jitter came from its method, not from the model: a one-sample Monte Carlo
+  gradient from a random CS each step, Adam's roughly constant-size steps, random walks along unconstrained directions, and
+  step-count-dependent bias correction. The replacement:
+  - **Model:** joint MAP with explicit latent feature points; whitened residuals `W (R_iᵀ(x_f − t_i) − μ)`, so anisotropic
+    covariances (e.g. camera rays) are honored exactly. The marginal-likelihood log-det term is deliberately omitted, because it
+    rewards near-parallel ray geometries.
+  - **Dynamics:** damped Gauss-Newton on SE(3) (body-frame rotation, world translation). Each step moves a fraction
+    `alpha = 1 − exp(−dt / convergence_time)` of the way, with `dt` measured in wall-clock time. There's no schedule, step
+    counter or momentum, so it's interruptible and restartable, picks up data changes on the next step, and is still at the fixed point.
+  - **New or badly placed CSs** move toward a weighted-Kabsch pose (taken only when < 1/4 of the current local cost) at the same
+    rate, which avoids rotation local minima while keeping the drift-in look.
+  - **Uncertainty:** `aligner.pose_covariances[name]` is the Laplace (inverse Gauss-Newton Hessian) 6×6 covariance. Unconstrained
+    directions show up as huge variance. Not yet exposed over HTTP.
+  - `run_optimizer` now sleeps `step_interval` between steps (the daemon used to spin a core).
+- **Verified:** `python -m nestbox.test_gauss_newton_aligner` (no daemon; 8 checks):
+  - exact noise-free recovery;
+  - 3e-16 change over 200 steps at the fixed point;
+  - empirical/predicted covariance ratio 1.00 over 300 trials;
+  - 6e-16 jump on restart from a saved estimate;
+  - re-convergence after a data change;
+  - no drift (and huge reported variance) with only 2 shared points;
+  - a CS appearing 175° off gets placed;
+  - camera-like 2 mm × 0.5 m ray covariances recovered, with χ² ≈ 5 (6 dof) against its own covariance.
+
+  Through the daemon, `test_armdemo_alignment.py` matches Kabsch to 0.00 cm / 0.00° with no jitter (isotropic noise, so MAP =
+  weighted Kabsch). The daemon now uses ~0% CPU.
+- **Plan steps 3–4 done (outside this repo, in `../arm-demo-20261003/labspace/demo/`):** `follow_hand.py --nestbox` plus
+  `nestbox_link.py` feed calibration touches to the daemon and follow its estimate, and stream overlay geometry (TCP 8651) to the
+  Quest's `NestboxOverlay.cs`: base box and axes, touch points, mapped arm points, and residual lines. `run_nestbox_demo.sh` starts
+  Redis, a fresh daemon, adb reverse and the follower. Tested in the lab with the real arm.
+
+**Still open:** plan step 5 (the history-ring re-drift, waiting on real arm tracking), publishing `pose_covariances` over HTTP
+(e.g. as an uncertainty ellipsoid in VR), robust losses (Huber/Cauchy via IRLS) for bad touches, non-Normal measurement types
+(cones/rays for cameras, as in nestbox-ng), and the port-12345 ownership choice (gap 3).
 
 ## Goal
 

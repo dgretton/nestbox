@@ -9,7 +9,12 @@ network:
       port: 12345
 
 aligner:
-  type: "adam"
+  # gauss_newton: deterministic, still when data is static (python/nestbox/aligner/gauss_newton_aligner.py).
+  # convergence_time: seconds for ~63% of the way to the optimum, in wall-clock time; 0 = jump straight there.
+  type: "gauss_newton"
+  convergence_time: 1.0
+  step_interval: 0.02
+  # settings below are for type: "adam"
   learning_rate: 0.01
   beta1: 0.9
   beta2: 0.999
