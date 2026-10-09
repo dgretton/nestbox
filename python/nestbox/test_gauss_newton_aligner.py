@@ -176,8 +176,193 @@ def test_camera_rays():
     print(f"camera-like CS (2 mm x 0.5 m ray covariances): {d * 100:.1f} cm / {a:.2f} deg from truth, chi2 {c2:.1f} (6 dof)")
 
 
+# Bearing checks use their own seeded RNG so the eight Gaussian regression printouts stay unchanged.
+from nestbox.measurement import BearingMeasurement
+from nestbox.aligner.measurement_residual import BearingResidual, GaussianResidual
+from nestbox.aligner.gauss_newton_aligner import _matrix_to_quat, _skew
+import warnings
+
+BEARING_POINTS = np.array([[-.5, -.3, 1], [.4, -.3, 1.2], [.5, .4, 1.5], [-.4, .4, 1.8],
+                           [.1, .1, 2], [-.2, -.1, 2.3], [.6, .2, 2.5], [-.6, .2, 2.2]])
+
+
+def make_bearing_aligner(noise=False, mixed=False, seed=0):
+    random = np.random.default_rng(seed)
+    al, css = make_aligner(names=('vr', 'arm', 'cam') if mixed else ('vr', 'cam'), noise=False,
+                          features=BEARING_POINTS)
+    R, t = TRUTH['cam']
+    for k, x in enumerate(BEARING_POINTS):
+        f = to_feature(f'f{k}')
+        vr_cov = np.eye(3) * .002 ** 2
+        css['vr'].measurements[f] = NormalMeasurement(f, x + (random.normal(size=3) * .002 if noise else 0), vr_cov)
+        # A nonzero sensor origin and correlated anisotropic noise exercise the full model.
+        origin = np.array([.08, -.03, .02])
+        d = R.T @ (x - t) - origin
+        d /= np.linalg.norm(d)
+        basis = BearingMeasurement.tangent_basis(d)
+        C = np.array([[4e-6, 1e-6], [1e-6, 2e-6]])
+        observed = d + (basis @ random.multivariate_normal(np.zeros(2), C) if noise else 0)
+        observed /= np.linalg.norm(observed)
+        # Project the old first image axis to the new tangent plane.
+        e = basis[:, 0] - observed * (observed @ basis[:, 0])
+        e /= np.linalg.norm(e)
+        E = np.column_stack((e, np.cross(observed, e)))
+        css['cam'].measurements[f] = BearingMeasurement(f, observed, C, basis=E, origin=origin)
+        if mixed:
+            mu, cov = measure('arm', x, noise=False)
+            if noise:
+                mu += random.multivariate_normal(np.zeros(3), cov)
+            css['arm'].measurements[f] = NormalMeasurement(f, mu, cov)
+    return al, css
+
+
+def test_bearing_jacobians():
+    m = BearingMeasurement(to_feature('jacobian'), [.2, -.1, 1], [[.01, .002], [.002, .02]],
+                           origin=[.1, -.2, .3], depth_prior=(2., .8))
+    model = BearingResidual(m)
+    v = np.array([.5, .1, 2.])
+    r, J = model.evaluate(v)
+    h = 1e-6
+    numeric = np.column_stack([(model.evaluate(v + h * e)[0] - model.evaluate(v - h * e)[0]) / (2*h)
+                               for e in np.eye(3)])
+    assert np.allclose(J, numeric, atol=1e-8)
+    # Chain rule for the aligner's body rotation and world translation convention.
+    R = _exp_so3(np.array([.3, -.1, .2]))
+    numeric_rotation = np.column_stack([(model.evaluate(_exp_so3(-h*e) @ v)[0] -
+                                        model.evaluate(_exp_so3(h*e) @ v)[0])/(2*h) for e in np.eye(3)])
+    assert np.allclose(J @ _skew(v), numeric_rotation, atol=1e-8)
+    assert model.evaluate(m.origin - m.direction) is None
+    print('bearing residual and pose Jacobians: finite differences agree')
+
+
+def test_bearing_pnp_exact():
+    al, css = make_bearing_aligner()
+    run(al, 20)
+    d, a = pose_error(al, css['cam'], 'cam')
+    assert d < 1e-6 and a < 1e-4, (d, a)
+    assert len(al.measurement_cones()) == len(BEARING_POINTS)
+    assert len(al.measurement_ellipsoids()) == len(BEARING_POINTS)
+    print(f'bearing PnP from identity: position error {d:.1e} m, angle {a:.1e} deg')
+
+
+def test_bearing_covariance_matches_scatter():
+    for mixed in (False, True):
+        est, pred = [], []
+        for seed in range(300):
+            al, css = make_bearing_aligner(noise=True, mixed=mixed, seed=seed)
+            run(al, 15)
+            est.append(pose(al, css['cam'])[1])
+            pred.append(al.pose_covariances[css['cam'].name][3:, 3:])
+        ratio = np.trace(np.cov(np.array(est).T)) / np.trace(np.mean(pred, axis=0))
+        bias = np.linalg.norm(np.mean(est, axis=0) - TRUTH['cam'][1])
+        assert .75 < ratio < 1.33, (mixed, ratio)
+        assert bias < .003, (mixed, bias)
+        print(f'bearing camera covariance (mixed={mixed}, 300 trials): empirical/predicted {ratio:.2f}', flush=True)
+
+
+def test_bearing_cheirality():
+    al, css = make_bearing_aligner()
+    run(al, 20)
+    R, t = TRUTH['cam']
+    f = to_feature('behind')
+    css['vr'].measurements[f] = NormalMeasurement(f, t + R @ np.array([0, 0, -2]), np.eye(3)*1e-6)
+    css['cam'].measurements[f] = BearingMeasurement(f, [0, 0, 1], .002)
+    run(al, 10)
+    assert al.skipped_bearings == 1
+    d, a = pose_error(al, css['cam'], 'cam')
+    assert d < 1e-6 and a < 1e-4, (d, a)
+    print('cheirality: behind-camera bearing skipped without pose bias')
+
+
+def test_bearing_scale_gauge():
+    al = GaussNewtonAligner(convergence_time=0)
+    css = [CoordinateSystem(f'scale_{next(_names)}') for _ in range(2)]
+    centers = [np.zeros(3), np.array([.3, .1, 0])]
+    for cs, center in zip(css, centers):
+        for k, x in enumerate(BEARING_POINTS):
+            f = to_feature(f'f{k}')
+            cs.measurements[f] = BearingMeasurement(f, x-center, .002)
+        al.add_coordinate_system(cs, initial_origin=center)
+    al.pin(css[0])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        run(al, 10)
+        before = pose(al, css[1])[1].copy()
+        run(al, 200)
+    drift = np.max(np.abs(pose(al, css[1])[1] - before))
+    axis = centers[1] / np.linalg.norm(centers[1])
+    variance = axis @ al.pose_covariances[css[1].name][3:, 3:] @ axis
+    assert len(caught) == 1 and 'scale is unobservable' in str(caught[0].message), caught
+    assert drift < 1e-7 and variance > 1e3, (drift, variance)
+    assert np.all(np.isfinite(al.sampled_points))
+    print(f'bearing-only scale gauge: drift {drift:.1e}, scale variance {variance:.1e}, one warning')
+
+
+def test_bearing_far_points():
+    # Angular information is independent of range. A fixed-d0 Gaussian matches at d0,
+    # but discards angular information for nearer features if d0 was chosen for the sky.
+    m = BearingMeasurement(to_feature('far'), [.2, -.1, 1], .002)
+    b = BearingResidual(m)
+    d = m.direction
+    Jnear = b.evaluate(d)[1] @ _skew(d)
+    Jfar = b.evaluate(1000*d)[1] @ _skew(1000*d)
+    assert np.allclose(Jnear.T @ Jnear, Jfar.T @ Jfar)
+    C = (1000*.002)**2 * (np.eye(3)-np.outer(d,d)) + 1e8*np.outer(d,d)
+    g = GaussianResidual(1000*d, C)
+    Jg = g.W @ _skew(d)
+    ratio = np.trace(Jnear.T @ Jnear) / np.trace(Jg.T @ Jg)
+    assert np.isclose(ratio, 1e6)
+    assert np.allclose((1000*Jg).T @ (1000*Jg), Jfar.T @ Jfar)
+    # Solve an actual kilometer-scale scene and inspect its rotation covariance.
+    al, css = make_bearing_aligner()
+    for k, x in enumerate(1000 * BEARING_POINTS):
+        f = to_feature(f'f{k}')
+        css['vr'].measurements[f] = NormalMeasurement(f, x, np.eye(3)*.002**2)
+        R, t = TRUTH['cam']
+        css['cam'].measurements[f] = BearingMeasurement(f, R.T @ (x-t), .002)
+    run(al, 30)
+    dpos, angle = pose_error(al, css['cam'], 'cam')
+    rot_sd = np.sqrt(np.max(np.linalg.eigvalsh(al.pose_covariances[css['cam'].name][:3, :3])))
+    assert dpos < 1e-5 and angle < 1e-4 and rot_sd < .02, (dpos, angle, rot_sd)
+    print(f'1 km features: rotation sd {np.degrees(rot_sd):.2f} deg; fixed-1km Gaussian loses {ratio:.0f}x information at 1m')
+
+
+def test_bearing_depth_prior():
+    f = to_feature('depth')
+    gaussian = GaussianResidual(np.array([0., 0., 10.]), np.eye(3))
+    values = []
+    for sigma in (100., .01):
+        bearing = BearingResidual(BearingMeasurement(f, [0, 0, 1], .002, depth_prior=(2., sigma)))
+        values.append(GaussNewtonAligner._landmark([(0, gaussian), (1, bearing)], [np.eye(3)]*2, [np.zeros(3)]*2)[2])
+    assert abs(values[0]-10) < .001 and abs(values[1]-2) < .01, values
+    print(f'log-depth prior: weak -> {values[0]:.3f} m; strong -> {values[1]:.3f} m (prior 2m, measured 10m)')
+
+
+def test_bearing_fixed_point_and_restart():
+    al, css = make_bearing_aligner(noise=True, mixed=True, seed=123)
+    run(al, 30)
+    before = np.array(al.current_origins)
+    rotations_before = np.array(al.current_orientations)
+    run(al, 200)
+    drift = max(np.max(np.abs(before-al.current_origins)),
+                np.max(np.abs(rotations_before-al.current_orientations)))
+    saved = (list(al.current_origins), list(al.current_orientations))
+    fresh = GaussNewtonAligner(convergence_time=0)
+    for i, cs in enumerate(al.coordinate_systems):
+        fresh.add_coordinate_system(cs, saved[0][i], saved[1][i])
+    fresh.pin(css['vr'])
+    run(fresh, 1)
+    jump = max(np.max(np.abs(np.array(saved[0])-fresh.current_origins)),
+               np.max(np.abs(np.array(saved[1])-fresh.current_orientations)))
+    assert drift < 1e-9 and jump < 1e-9, (drift, jump)
+    print(f'bearings fixed-point drift {drift:.1e}; restart jump {jump:.1e}')
+
+
 if __name__ == '__main__':
     for test in [test_noise_free_exact, test_still_at_fixed_point, test_covariance_matches_scatter, test_restart_is_seamless,
-                 test_follows_data_change, test_weak_geometry_stays_put, test_new_cs_with_large_rotation, test_camera_rays]:
+                 test_follows_data_change, test_weak_geometry_stays_put, test_new_cs_with_large_rotation, test_camera_rays,
+                 test_bearing_jacobians, test_bearing_pnp_exact, test_bearing_cheirality, test_bearing_scale_gauge,
+                 test_bearing_far_points, test_bearing_depth_prior, test_bearing_fixed_point_and_restart,
+                 test_bearing_covariance_matches_scatter]:
         test()
     print("all passed")

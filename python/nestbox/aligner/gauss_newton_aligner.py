@@ -7,12 +7,17 @@ the whitened residual
 
     r = W (R_i^T (x_f - t_i) - mu),    W^T W = Sigma^-1,
 
-so anisotropic covariances (long ovals, e.g. camera rays) are honored exactly. The objective, 1/2 sum |r|^2, is the
+so anisotropic Gaussian covariances are honored exactly. BearingMeasurement instead contributes the
+whitened tangent-plane projection E^T(v-origin)/(direction^T(v-origin)), with optional log-range prior.
+Behind-camera bearings are skipped and counted in skipped_bearings; backtracking cannot discard active residuals.
+The objective, 1/2 sum |r|^2, is the
 joint MAP over poses and feature positions. (The marginal likelihood with x_f integrated out differs by a log-det
 term that rewards near-parallel, i.e. less informative, ray geometries; it is deliberately left out.)
 
 Dynamics. Each step: place newly appearing (or badly misplaced) coordinate systems in closed form (weighted Kabsch
-against neighbors, adopted only when far better than the current pose), set every x_f to its closed-form optimum given the poses, then move a fraction alpha of a damped
+against neighbors, with iterative ray depths for bearings, adopted only when far better than the current pose),
+solve every x_f conditionally given the poses (closed form for Gaussians, triangulation plus bounded GN for bearings),
+then move a fraction alpha of a damped
 Gauss-Newton step. alpha = 1 - exp(-dt / convergence_time) depends only on the wall-clock time since the previous
 step, so the dynamics are autonomous: no schedule, no step counter, no momentum. Restarting from a saved estimate is
 seamless, data changes are picked up on the next step, and with static data the estimate converges to a fixed point
@@ -25,12 +30,15 @@ Uncertainty. pose_covariances[name] is the Laplace approximation (inverse Gauss-
 everything else) for each coordinate system relative to its component's fixed CS: 6x6, ordered
 [body-frame rotation (rad, applied as R <- R Exp(phi)), world-frame translation (m)]. feature_estimates[f] is each
 shared feature's world position and posterior covariance; measurement_ellipsoids() gives every individual measurement
-as a world-frame Gaussian under the current poses.
+as a world-frame Gaussian under the current poses, while measurement_cones() exposes bearing uncertainty.
+Components without Gaussian measurements or depth priors warn once about the unobservable scale.
 """
 import time
+import warnings
 import numpy as np
 from .aligner import Aligner
-from ..measurement import NormalMeasurement
+from ..measurement import NormalMeasurement, BearingMeasurement
+from .measurement_residual import GaussianResidual, BearingResidual, _whitener
 from ..numutil import coerce_numpy
 
 
@@ -88,13 +96,6 @@ def _matrix_to_quat(R):
     return q if q[0] >= 0 else -q
 
 
-def _whitener(cov, min_variance=1e-12):
-    """W with W^T W = cov^-1 (robust to near-singular and very elongated covariances)."""
-    evals, evecs = np.linalg.eigh((cov + cov.T) / 2)
-    evals = np.maximum(evals, min_variance)
-    return (evecs / np.sqrt(evals)).T
-
-
 class GaussNewtonAligner(Aligner):
     def __init__(self, convergence_time=1.0, step_interval=0.02, damping=1e-9, **kwargs):
         super().__init__()
@@ -106,6 +107,8 @@ class GaussNewtonAligner(Aligner):
         self.feature_estimates = {}  # feature -> (world position, posterior covariance) for features seen by >= 2 CSs
         self.cost = None
         self._last_step = None
+        self.skipped_bearings = 0
+        self._warned_scale_components = set()
 
     # ---------- inspection ----------
 
@@ -128,6 +131,34 @@ class GaussNewtonAligner(Aligner):
                         out.append((cs.name, feature, R @ mu + t, R @ cov @ R.T))
         return out
 
+    def measurement_cones(self, k=1, cs_names=None, include_basis=False):
+        """World cones: (cs, feature, apex, axis, half_angles, length).
+
+        Angles are k-sigma along the principal covariance axes. With include_basis=True,
+        append their world 3x2 basis, needed to render anisotropic/correlated cones.
+        Length is 1.5 times shared feature range, otherwise prior range, otherwise 2 m.
+        """
+        if not np.isfinite(k) or k < 0:
+            raise ValueError('k must be finite and nonnegative')
+        out = []
+        with self.lock:
+            Rs, ts = self._poses()
+            for i, cs in enumerate(self.coordinate_systems):
+                if cs_names is not None and cs.name not in cs_names:
+                    continue
+                for feature, m in list(cs.measurements.items()):
+                    if not isinstance(m, BearingMeasurement):
+                        continue
+                    apex, axis = Rs[i] @ m.origin + ts[i], Rs[i] @ m.direction
+                    values, vectors = np.linalg.eigh(m.angular_covariance)
+                    if feature in self.feature_estimates:
+                        length = 1.5 * np.linalg.norm(self.feature_estimates[feature][0] - apex)
+                    else:
+                        length = m.depth_prior[0] if m.depth_prior is not None else 2.0
+                    row = (cs.name, feature, apex, axis, k * np.sqrt(values), length)
+                    out.append(row + (Rs[i] @ m.basis @ vectors,) if include_basis else row)
+        return out
+
     # ---------- problem assembly ----------
 
     def _poses(self):
@@ -136,18 +167,21 @@ class GaussNewtonAligner(Aligner):
         return Rs, ts
 
     def _observations(self):
-        """{feature: [(cs_idx, mu, W, P)]} for NormalMeasurements of features seen by >= 2 coordinate systems."""
+        """{feature: [(cs_idx, residual)]} for shared 3-D points and bearings."""
         by_feature = {}
         for i, cs in enumerate(self.coordinate_systems):
             for feature, meas in list(cs.measurements.items()):
-                if not isinstance(meas, NormalMeasurement):
+                if isinstance(meas, BearingMeasurement):
+                    residual = BearingResidual(meas)
+                elif isinstance(meas, NormalMeasurement):
+                    mu = coerce_numpy(meas.mean).astype(float).reshape(-1)
+                    cov = coerce_numpy(meas.covariance).astype(float)
+                    if mu.shape != (3,) or cov.shape != (3, 3):
+                        continue
+                    residual = GaussianResidual(mu, cov)
+                else:
                     continue
-                mu = coerce_numpy(meas.mean).astype(float).reshape(-1)
-                cov = coerce_numpy(meas.covariance).astype(float)
-                if mu.shape != (3,) or cov.shape != (3, 3):
-                    continue
-                W = _whitener(cov)
-                by_feature.setdefault(feature, []).append((i, mu, W, W.T @ W))
+                by_feature.setdefault(feature, []).append((i, residual))
         return {f: obs for f, obs in by_feature.items() if len({o[0] for o in obs}) >= 2}
 
     def _components(self, obs):
@@ -169,18 +203,64 @@ class GaussNewtonAligner(Aligner):
 
     @staticmethod
     def _landmark(obs_f, Rs, ts, members=None):
-        """Closed-form optimal world position of a feature given poses (precision-weighted)."""
-        A = np.zeros((3, 3))
-        b = np.zeros(3)
-        for i, mu, _, P in obs_f:
-            if members is not None and i not in members:
-                continue
-            Pw = Rs[i] @ P @ Rs[i].T
-            A += Pw
-            b += Pw @ (Rs[i] @ mu + ts[i])
+        """Deterministic triangulation followed by a bounded feature-only GN solve.
+
+        No cached dynamics: the same poses and observations give the same result on restart.
+        Gaussian-only features retain the original precision-weighted closed form exactly.
+        """
+        selected = [(i, m) for i, m in obs_f if members is None or i in members]
+        A, b = np.zeros((3, 3)), np.zeros(3)
+        for i, m in selected:
+            Ai, bi = m.triangulation_terms(Rs[i], ts[i])
+            A += Ai
+            b += bi
         if not A.any():
             return None
-        return np.linalg.pinv(A) @ b
+        x = np.linalg.pinv(A) @ b
+        if all(isinstance(m, GaussianResidual) for _, m in selected):
+            return x
+        if np.linalg.eigvalsh(A)[0] <= 1e-10 * np.trace(A):
+            if members is not None:
+                return None  # a single un-ranged ray cannot place another coordinate system
+            # Choose a finite depth along the unobservable direction, without imposing a prior.
+            seeds = [Rs[i] @ (m.meas.origin + m.meas.direction *
+                     (m.meas.depth_prior[0] if m.metric else 1.0)) + ts[i]
+                     for i, m in selected if isinstance(m, BearingResidual)]
+            x += (np.eye(3) - np.linalg.pinv(A) @ A) @ np.mean(seeds, axis=0)
+
+        def evaluate(point):
+            return [(i, m.evaluate(Rs[i].T @ (point - ts[i]))) for i, m in selected]
+
+        for _ in range(12):
+            rows = evaluate(x)
+            valid = [(i, result) for i, result in rows if result is not None]
+            if not valid:
+                break
+            H, g = np.zeros((3, 3)), np.zeros(3)
+            cost = 0.0
+            for i, (r, D) in valid:
+                J = D @ Rs[i].T
+                H += J.T @ J
+                g += J.T @ r
+                cost += r @ r
+            dx = -np.linalg.solve(H + 1e-12 * max(np.trace(H), 1.0) * np.eye(3), g)
+            # Near-parallel rays must not send the feature off to infinity in one step.
+            bound = max(1.0, min(np.linalg.norm(x - ts[i]) for i, _ in valid)) * 0.5
+            dx *= min(1.0, bound / max(np.linalg.norm(dx), 1e-30))
+            if np.linalg.norm(dx) < 1e-12 * max(1.0, np.linalg.norm(x)):
+                break
+            for _ in range(10):
+                trial = evaluate(x + dx)
+                # A step cannot lower cost by moving an active point behind its sensor.
+                if all(new is not None for (_, old), (_, new) in zip(rows, trial) if old is not None):
+                    trial_cost = sum(result[0] @ result[0] for _, result in trial if result is not None)
+                    if trial_cost <= cost:
+                        x += dx
+                        break
+                dx *= 0.5
+            else:
+                break
+        return x
 
     # ---------- closed-form placement of new coordinate systems ----------
 
@@ -198,45 +278,77 @@ class GaussNewtonAligner(Aligner):
                 for u in comp:
                     if u in visited:
                         continue
-                    pairs = []  # (mu_u, W_u, P_u, landmark from visited observers)
+                    pairs = []  # (residual, landmark from visited metric observers)
                     for obs_f in obs.values():
                         mine = [k for k in obs_f if k[0] == u]
                         if not mine or not any(k[0] in visited for k in obs_f):
                             continue
-                        _, mu, W, P = mine[0]
-                        pairs.append((mu, W, P, self._landmark(obs_f, Rs, ts, members=visited)))
+                        x = self._landmark(obs_f, Rs, ts, members=visited)
+                        if x is not None:
+                            pairs.append((mine[0][1], x))
                     if not pairs:
                         continue
                     visited.add(u)
                     progress = True
 
+                    # Once enough points are in front, behind-camera outliers must not
+                    # provoke re-placement of an otherwise valid pose. When a camera is
+                    # first introduced facing away, Kabsch can still initialize it.
+                    visible = [(m, x) for m, x in pairs if m.evaluate(Rs[u].T @ (x - ts[u])) is not None]
+                    if len(visible) >= 3:
+                        pairs = visible
+
                     def local_cost(R, t):
-                        return sum(float(np.sum((W @ (R.T @ (x - t) - mu)) ** 2)) for mu, W, _, x in pairs)
-                    local = np.array([p[0] for p in pairs])
-                    world = np.array([p[3] for p in pairs])
-                    w = np.array([1.0 / np.trace(np.linalg.pinv(p[2])) for p in pairs])
-                    w = w / w.sum()
-                    cl, cw = w @ local, w @ world
-                    R_c = Rs[u]
-                    if len(pairs) >= 3 and np.linalg.svd(local - cl, compute_uv=False)[1] > 1e-6:
-                        U, _, Vt = np.linalg.svd(((local - cl) * w[:, None]).T @ (world - cw))
-                        D = np.diag([1, 1, np.sign(np.linalg.det(Vt.T @ U.T))])
-                        R_c = Vt.T @ D @ U.T
-                    t_c = cw - R_c @ cl  # with < 3 usable points only the translation is proposed
+                        rows = [m.evaluate(R.T @ (x - t)) for m, x in pairs]
+                        if any(row is None for row in rows):
+                            return np.inf
+                        return sum(float(r @ r) for r, _ in rows)
+
+                    world = np.array([x for _, x in pairs])
+                    median_depth = max(float(np.median(np.linalg.norm(world - ts[u], axis=1))), 0.1)
+                    depths = [m.meas.depth_prior[0] if m.metric else median_depth
+                              for m, _ in pairs if isinstance(m, BearingResidual)]
+                    has_bearings = bool(depths)
+                    R_c, t_c = Rs[u], ts[u]
+                    for iteration in range(5 if has_bearings else 1):
+                        local, weights = [], []
+                        k = 0
+                        for m, x in pairs:
+                            if isinstance(m, GaussianResidual):
+                                local.append(m.mu)
+                                weights.append(1.0 / np.trace(np.linalg.pinv(m.P)))
+                            else:
+                                rho = depths[k] if iteration == 0 else max(np.linalg.norm(x - (R_c @ m.meas.origin + t_c)), 1e-6)
+                                k += 1
+                                local.append(m.meas.origin + rho * m.meas.direction)
+                                weights.append(1.0 / (rho ** 2 * np.trace(m.meas.angular_covariance)))
+                        local = np.array(local)
+                        w = np.array(weights) / np.sum(weights)
+                        cl, cw = w @ local, w @ world
+                        if len(pairs) >= 3 and np.linalg.svd(local - cl, compute_uv=False)[1] > 1e-6:
+                            U, _, Vt = np.linalg.svd(((local - cl) * w[:, None]).T @ (world - cw))
+                            D = np.diag([1, 1, np.sign(np.linalg.det(Vt.T @ U.T))])
+                            R_c = Vt.T @ D @ U.T
+                        t_c = cw - R_c @ cl
                     if local_cost(R_c, t_c) < 0.25 * local_cost(Rs[u], ts[u]):
                         Rs[u] = Rs[u] @ _exp_so3(alpha * _log_so3(Rs[u].T @ R_c))
                         ts[u] = ts[u] + alpha * (t_c - ts[u])
 
     # ---------- one step ----------
 
-    def _cost(self, obs, Rs, ts):
-        c = 0.0
-        for obs_f in obs.values():
+    def _cost(self, obs, Rs, ts, required=None):
+        c, active = 0.0, set()
+        for f, obs_f in obs.items():
             x = self._landmark(obs_f, Rs, ts)
-            for i, mu, W, _ in obs_f:
-                r = W @ (Rs[i].T @ (x - ts[i]) - mu)
-                c += 0.5 * r @ r
-        return c
+            for i, m in obs_f:
+                result = m.evaluate(Rs[i].T @ (x - ts[i]))
+                if result is not None:
+                    r, _ = result
+                    c += 0.5 * r @ r
+                    active.add((f, i))
+        if required is not None and not required.issubset(active):
+            return np.inf, active
+        return c, active
 
     def _build_model(self):
         pass  # nothing to build; the problem is reassembled from the current measurements every step
@@ -251,12 +363,24 @@ class GaussNewtonAligner(Aligner):
             obs = self._observations()
         except RuntimeError:  # measurements changed mid-iteration on another thread; try next step
             return
+        self.skipped_bearings = 0
         if not obs:
+            self.feature_estimates = {}
+            self.pose_covariances = {}
+            self.sampled_points = np.zeros((0, 3))
+            self.cost = 0.0
             return
         Rs, ts = self._poses()
         comps = self._components(obs)
         # fixed CS per component (it stays where it is): the pinned one if present, else the lowest index
         fixed = {self.pinned_cs_idx if self.pinned_cs_idx in comp else comp[0] for comp in comps}
+        for comp in comps:
+            if not any(m.metric for rows in obs.values() for i, m in rows if i in comp):
+                key = tuple(self.coordinate_systems[i].name for i in comp)
+                if key not in self._warned_scale_components:
+                    warnings.warn(f"Bearing-only component {key} has no metric information: scale is unobservable.",
+                                  RuntimeWarning, stacklevel=2)
+                    self._warned_scale_components.add(key)
         self._place(obs, comps, Rs, ts, fixed, alpha)
         free = [i for comp in comps for i in comp if i not in fixed]
         features = list(obs)
@@ -276,15 +400,19 @@ class GaussNewtonAligner(Aligner):
             Hff = np.zeros((3, 3))
             gf = np.zeros(3)
             Bf = []  # (pose column, 6x3 cross block)
-            for i, mu, W, _ in obs[f]:
+            for i, m in obs[f]:
                 v = Rs[i].T @ (x - ts[i])
-                r = W @ (v - mu)
-                Jl = W @ Rs[i].T
+                result = m.evaluate(v)
+                if result is None:
+                    self.skipped_bearings += 1
+                    continue
+                r, D = result
+                Jl = D @ Rs[i].T
                 Hff += Jl.T @ Jl
                 gf += Jl.T @ r
                 if i in pose_col:
                     c = pose_col[i]
-                    Jp = np.hstack([W @ _skew(v), -Jl])
+                    Jp = np.hstack([D @ _skew(v), -Jl])
                     S[c:c + 6, c:c + 6] += Jp.T @ Jp
                     b[c:c + 6] += Jp.T @ r
                     Bf.append((c, Jp.T @ Jl))
@@ -303,13 +431,13 @@ class GaussNewtonAligner(Aligner):
         else:
             delta = np.zeros(0)
 
-        cost0 = self._cost(obs, Rs, ts)
+        cost0, active = self._cost(obs, Rs, ts)
         for _ in range(8):  # memoryless backtracking: shrink this step only if it would increase the cost
             Rn, tn = list(Rs), list(ts)
             for i, c in pose_col.items():
                 Rn[i] = Rs[i] @ _exp_so3(alpha * delta[c:c + 3])
                 tn[i] = ts[i] + alpha * delta[c + 3:c + 6]
-            cost1 = self._cost(obs, Rn, tn)
+            cost1, _ = self._cost(obs, Rn, tn, required=active)
             if cost1 <= cost0 + 1e-12 * max(cost0, 1.0):
                 break
             alpha *= 0.5
@@ -332,6 +460,8 @@ class GaussNewtonAligner(Aligner):
                 for cb, Bb in Bf:
                     C += Kf @ Ba.T @ Spp[ca:ca + 6, cb:cb + 6] @ Bb @ Kf
             feature_covariances[f] = C
+
+        self.sampled_points = np.array([self._landmark(obs[f], Rn, tn) for f in features])
 
         # pinned gauge: express everything so the pinned CS sits at the identity (as the other aligners do)
         if self.pinned_cs_idx is not None and self.pinned_cs_idx < len(Rn):

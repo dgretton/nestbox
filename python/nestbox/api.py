@@ -31,6 +31,12 @@ def add_measurement(feature, cs, mean, covariance, dimensions=None, is_homogeneo
     print(f"Adding measurement with dimensions {dimensions} and is_homogeneous {is_homogeneous}")
     return _get_client().add_normal_measurement(feature, cs, mean, covariance, dimensions, is_homogeneous)
 
+def add_bearing_measurement(feature, cs, direction, angular_covariance, basis=None, origin=None,
+                            depth_prior=None, dimensions=None, is_homogeneous=None, clear_key=None):
+    """Add a ray; scalar angular_covariance is sigma (radians), a 2x2 matrix is radians²."""
+    return _get_client().add_bearing_measurement(feature, cs, direction, angular_covariance, basis,
+                                                origin, depth_prior, dimensions, is_homogeneous, clear_key)
+
 def add_measurements(cs_guid, measurements):
     return _get_client().add_measurements(cs_guid, measurements)
 

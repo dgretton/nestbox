@@ -65,6 +65,17 @@ class NestboxAPIClient:
         #print(f"API client received response from add_normal_measurement: {response}")
         return response.json()
 
+    def add_bearing_measurement(self, feature, cs, direction, angular_covariance, basis=None,
+                                origin=None, depth_prior=None, dimensions=None,
+                                is_homogeneous=None, clear_key=None):
+        from .measurement import BearingMeasurement
+        from .feature import to_feature
+        measurement = BearingMeasurement(to_feature(feature), direction, angular_covariance, basis,
+                                         origin, depth_prior, dimensions, is_homogeneous, clear_key)
+        response = self.session.post(f'{self.base_url}/coordsys/{cs}/measurement', json=measurement.to_dict())
+        response.raise_for_status()
+        return response.json()
+
     def add_measurements(self, cs, measurements):
         url = f'{self.base_url}/coordsys/{cs}/measurements'
         response = self.session.post(url, json={"measurements": measurements})

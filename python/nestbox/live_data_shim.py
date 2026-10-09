@@ -1,7 +1,9 @@
 import socket
 import threading
 from nestbox.interfaces import ConnectionInterface
-from nestbox.protos import Twig
+from nestbox.protos import Twig, Dim
+from nestbox.measurement import BearingMeasurement
+from nestbox.feature import to_feature
 from nestbox.handedness import mirror_point, mirror_covariance
 
 class LiveDataShim:
@@ -83,6 +85,12 @@ class LiveDataShim:
             for bone_id, (mean, cov) in enumerate(zip(ms.means, ms.covariances)):
                 if self.mirror_x:
                     mean, cov = mirror_point(mean), mirror_covariance(cov)
+                feature = f"nestbox:feature/hand/{twig.stream_id}/bone/{bone_id}/position"
+                if ms.dimensions == [Dim.I, Dim.J, Dim.K]:
+                    measurements.append(BearingMeasurement.from_unit_vector(
+                        to_feature(feature), mean, cov, dimensions=ms.dimensions,
+                        is_homogeneous=ms.is_homogeneous).to_dict())
+                    continue
                 measurements.append({
                     "type": "NormalMeasurement",
                     "feature": f"nestbox:feature/hand/{twig.stream_id}/bone/{bone_id}/position",

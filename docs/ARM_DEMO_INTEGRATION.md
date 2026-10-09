@@ -196,3 +196,53 @@ Suggested: branch `armdemo` off `main`, merge `torchgpu`, and work there.
 - Arm demo: `../arm-demo-20261003/README.md`, `labspace/demo/FOLLOW_HAND.md`. Arm server protocol: `labspace/roarm/roarm_server.py` (`move_xyzt` with x/y/z in meters).
 - Measure Quest frame rate with `adb logcat -s VrApi` (lines like `FPS=72/72`).
 - Running Unity on this Mac resets the Quest's adb authorization; re-accept "Allow USB debugging" in the headset.
+
+## Status update (2026-10-09): bearing measurements and cone overlays
+
+Implemented in `armdemo`, with the camera demo changes in labspace's `armdemo-nestbox`:
+
+- `BearingMeasurement(feature, direction, angular_covariance, basis=None, origin=None, depth_prior=None, ...)`
+  represents a forward ray. A scalar angular covariance argument is **sigma in radians**; a 2×2 matrix is
+  **radians²** in the supplied orthonormal tangent basis. `depth_prior=(rho0, sigma_log_rho)` is optional.
+- The Gauss-Newton aligner now uses Gaussian/bearing residual blocks, analytic projection Jacobians, bounded
+  per-feature triangulation/refinement, and iterative-depth Kabsch placement. Gaussian-only solutions retain the
+  original closed form. Behind-camera observations are counted in `skipped_bearings`; line searches cannot reduce
+  cost by dropping previously active observations. Bearing-only components warn once about unobservable scale.
+- `nestbox.add_bearing_measurement(...)`, daemon add/get JSON, and Twig `[I,J,K]` ingestion are supported.
+  Twig covariances are 3×3 in unit-vector coordinates, with their tangent block projected into angular covariance.
+  The live shim mirrors direction and covariance together. Stream replacement preserves unrelated clear keys.
+- `measurement_cones(k=1, cs_names=None)` returns `(cs, feature, apex, axis, half_angles, length)` in world coordinates.
+  Use `include_basis=True` to append the 3×2 world principal-axis basis for anisotropic cone rendering.
+  Shared-feature length is 1.5× range; otherwise it is the prior range or 2 m. `measurement_ellipsoids()` remains
+  Gaussian-only. No new dependency was added.
+- `demo/camera_ray_test.py` defaults to `--depth-mode bearing`. Compare `--depth-mode sampled` (old noisy true-range
+  behavior) and `--depth-mode focal --focal-distance 2.5 --depth-sigma 0.5`. Bearings accept
+  `--depth-prior 2.5,1`. The existing Unity `lines` channel carries eight generators plus a twelve-segment ring per
+  cone, with x mirrored. This is a wireframe cone; a translucent cone mesh remains future Unity work.
+
+Verified without hardware:
+
+- All eight original Gaussian checks reproduce their prior printouts exactly.
+- Noise-free bearing PnP recovers the pose from identity, including a sensor offset and anisotropic covariance.
+  Analytic feature/pose Jacobians agree with finite differences. Behind-camera data causes no bias.
+- Two sets of 300 noisy trials give camera translation empirical/predicted variance ratios **1.03** (VR + camera)
+  and **1.05** (VR + arm + camera). Bearing fixed-point drift and restart jump are below 1e-9 m.
+- Bearing-only scale variance is about 7.3e3 with 4.4e-14 m drift over 200 steps and exactly one warning.
+  Weak/strong log-depth priors behave as expected; kilometer-scale features retain tight rotation uncertainty.
+- The headless camera demo settles **0.22 cm** from truth and stays still, emits 160 cone segments for eight features,
+  and verifies all three depth modes, ring geometry, anisotropy, handedness, and finite JSON.
+- JSON API/server round trips, protobuf/Twig routing, mirrored tangent covariances, validation and stream clearing pass.
+
+**Correction to the planning note's far-point claim:** a fixed-depth Gaussian at d0=1 km has the same local angular
+information as a bearing at 1 km. It loses information for points *nearer than d0*: at 1 m the information is 1e6
+smaller. The regression checks both equivalence at d0 and this loss, as well as solving a 1 km scene with bearings.
+
+Run from the Nestbox parent directory:
+
+```sh
+PYTHONPATH=nestbox/python ~/.venvs/nestbox/bin/python -m nestbox.test_gauss_newton_aligner
+PYTHONPATH=nestbox/python ~/.venvs/nestbox/bin/python -m nestbox.test_bearing_measurement
+PYTHONPATH=nestbox/python ~/.venvs/nestbox/bin/python arm-demo-20261003/labspace/demo/test_camera_ray_test.py
+```
+
+Live Quest verification is pending: the connected headset's existing camera test must be restarted to load these changes.

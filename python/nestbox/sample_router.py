@@ -1,5 +1,5 @@
 from nestbox.protos import Twig, MeasurementSet, Dim
-from nestbox.measurement import MeasurementType, NormalMeasurement
+from nestbox.measurement import MeasurementType, NormalMeasurement, BearingMeasurement
 from nestbox.feature import StrFeatureKey
 
 def sample_twig():
@@ -57,7 +57,7 @@ class SampleRouter:
             raise ValueError(f"Twig stream ID '{twig.stream_id}' does not match expected stream ID '{self.routing_info['stream_id']}'")
 
         for measurement_info in self.routing_info["measurements"]:
-            if measurement_info["type"] == "normal":
+            if measurement_info["type"] in ("normal", "bearing"):
                 feature_key = StrFeatureKey(measurement_info["feature_uri"])
                 clear_key = measurement_info["clear_key"]
                 set_index = measurement_info["sample_pointer"]["set"]
@@ -73,7 +73,13 @@ class SampleRouter:
                 mean = measurement_set.means[sample_index]
                 cov = measurement_set.covariances[sample_index]
                 dims = measurement_set.dimensions
-                measurement = NormalMeasurement(feature_key, mean, cov, dimensions=dims, clear_key=clear_key)
+                common = dict(dimensions=dims, is_homogeneous=measurement_set.is_homogeneous, clear_key=clear_key)
+                if dims == [Dim.I, Dim.J, Dim.K]:
+                    measurement = BearingMeasurement.from_unit_vector(feature_key, mean, cov, **common)
+                elif measurement_info['type'] == 'bearing':
+                    raise ValueError('Bearing samples require dimensions [I, J, K]')
+                else:
+                    measurement = NormalMeasurement(feature_key, mean, cov, **common)
                 measurements.append(measurement)
             else:
                 raise ValueError(f"Unsupported measurement type: {measurement_info['type']}")

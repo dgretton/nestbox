@@ -9,7 +9,7 @@ from typing import Dict, Any, List
 from nestbox.interfaces import AlignerClientInterface, ConnectionInterface, AlignmentResultInterface, ServerInterface, ServerConnectionInterface
 from nestbox.networking import QueueConnectionPair
 from nestbox.aligner import AlignerManager
-from nestbox.measurement import NormalMeasurement
+from nestbox.measurement import NormalMeasurement, BearingMeasurement, measurement_from_dict
 from nestbox.feature import StrFeatureKey
 from nestbox.coordsystem import CoordinateSystem
 from nestbox.run_optimizer import run_optimizer
@@ -200,18 +200,7 @@ class _DaemonLocalAlignerServer(ServerInterface):
         elif request_type == 'add_measurements':
             cs_guid = request['cs_guid']
             measurements_data = request['measurements']
-            measurements = []
-            for meas_data in measurements_data:
-                if meas_data['type'] == 'NormalMeasurement':
-                    feature = StrFeatureKey(meas_data['feature'])
-                    mean = meas_data['mean']
-                    covariance = meas_data['covariance']
-                    dimensions = meas_data.get('dimensions')
-                    is_homogeneous = meas_data.get('is_homogeneous')
-                    measurements.append(NormalMeasurement(feature, mean, covariance, dimensions,
-                                                          is_homogeneous=is_homogeneous, clear_key=None))
-                else:
-                    raise ValueError(f"Unsupported measurement type: {meas_data['type']}")
+            measurements = [measurement_from_dict(data) for data in measurements_data]
             try:
                 self.aligner_manager.update_measurements(cs_guid, measurements)
                 success()
@@ -222,7 +211,9 @@ class _DaemonLocalAlignerServer(ServerInterface):
             feature_id = request['feature_id']
             try:
                 measurement = self.aligner_manager.get_current_measurement(cs_guid, feature_id)
-                if isinstance(measurement, NormalMeasurement):
+                if isinstance(measurement, BearingMeasurement):
+                    meas_json = measurement.to_dict()
+                elif isinstance(measurement, NormalMeasurement):
                     meas_json = {
                         "type": "NormalMeasurement",
                         "feature": str(measurement.feature),

@@ -43,7 +43,11 @@ class CoordinateSystem:
         return self.measurements.get(feature)
 
     def clear_measurements(self, clear_key=None):
-        self.measurements = {feature: measurement for feature, measurement in self.measurements.items() if not measurement.clear_key.startswith(clear_key)}
+        self.measurements = {
+            feature: measurement for feature, measurement in self.measurements.items()
+            if not (clear_key is None or (measurement.clear_key is not None
+                                         and measurement.clear_key.startswith(clear_key)))
+        }
 
     def clear_all_measurements(self):
         self.measurements = {}

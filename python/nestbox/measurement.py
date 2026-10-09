@@ -4,6 +4,7 @@ import numpy as np
 
 class MeasurementType:
     NORMAL = 'NormalMeasurement'
+    BEARING = 'BearingMeasurement'
     OPTIONS = 'OptionsMeasurement'
     COLLECTION = 'CollectionMeasurement'
     ORDERED = 'OrderedMeasurement'
@@ -61,6 +62,86 @@ class NormalMeasurement(Measurement):
         mean: {self.mean}
         covariance: {self.covariance}
         dimensions: ({', '.join(Dim.names(self.dimensions))})"""
+
+
+class BearingMeasurement(Measurement):
+    """A forward ray with tangent-plane angular noise (radians²), and optional log-range prior.
+
+    A scalar angular_covariance is a standard deviation in radians. Matrix values are
+    covariances in the supplied orthonormal tangent basis, not in azimuth/elevation.
+    depth_prior is (positive range in meters, positive log-range standard deviation).
+    """
+    def __init__(self, feature, direction, angular_covariance, basis=None, origin=None,
+                 depth_prior=None, dimensions=None, is_homogeneous=None, clear_key=None):
+        super().__init__(feature, [Dim.I, Dim.J, Dim.K] if dimensions is None else dimensions,
+                         is_homogeneous, clear_key)
+        self.direction = np.asarray(direction, dtype=float).copy()
+        if self.direction.shape != (3,) or not np.all(np.isfinite(self.direction)) or np.linalg.norm(self.direction) == 0:
+            raise ValueError('direction must be a finite nonzero 3-vector')
+        self.direction /= np.linalg.norm(self.direction)
+        self.basis = self.tangent_basis(self.direction) if basis is None else np.asarray(basis, dtype=float).copy()
+        if (self.basis.shape != (3, 2) or not np.all(np.isfinite(self.basis))
+                or not np.allclose(self.basis.T @ self.basis, np.eye(2), atol=1e-8)
+                or not np.allclose(self.basis.T @ self.direction, 0, atol=1e-8)):
+            raise ValueError('basis must have two orthonormal columns perpendicular to direction')
+        cov = np.asarray(angular_covariance, dtype=float)
+        if cov.ndim == 0:
+            if not np.isfinite(cov) or cov <= 0:
+                raise ValueError('angular sigma must be positive and finite')
+            cov = np.eye(2) * float(cov) ** 2
+        if (cov.shape != (2, 2) or not np.all(np.isfinite(cov))
+                or not np.allclose(cov, cov.T, rtol=1e-8, atol=1e-15)
+                or np.min(np.linalg.eigvalsh(cov)) <= 0):
+            raise ValueError('angular_covariance must be a positive definite symmetric 2x2 matrix')
+        self.angular_covariance = cov.copy()
+        self.origin = np.zeros(3) if origin is None else np.asarray(origin, dtype=float).copy()
+        if self.origin.shape != (3,) or not np.all(np.isfinite(self.origin)):
+            raise ValueError('origin must be a finite 3-vector')
+        self.depth_prior = None
+        if depth_prior is not None:
+            prior = np.asarray(depth_prior, dtype=float)
+            if prior.shape != (2,) or not np.all(np.isfinite(prior)) or np.any(prior <= 0):
+                raise ValueError('depth_prior must be (positive rho0, positive sigma_log_rho)')
+            self.depth_prior = tuple(prior)
+
+    @staticmethod
+    def tangent_basis(direction):
+        d = np.asarray(direction, dtype=float)
+        d = d / np.linalg.norm(d)
+        e = np.eye(3)[np.argmin(np.abs(d))]
+        e = e - d * (d @ e)
+        e /= np.linalg.norm(e)
+        return np.column_stack((e, np.cross(d, e)))
+
+    @classmethod
+    def from_unit_vector(cls, feature, direction, covariance, **kwargs):
+        """Decode a Twig [I,J,K] sample; its 3x3 covariance's tangent block is angular."""
+        # Validate direction before constructing the basis.
+        m = cls(feature, direction, 1.0, **kwargs)
+        cov = np.asarray(covariance, dtype=float)
+        if cov.shape != (3, 3) or not np.all(np.isfinite(cov)) or not np.allclose(cov, cov.T):
+            raise ValueError('unit-vector covariance must be a finite symmetric 3x3 matrix')
+        return cls(feature, m.direction, m.basis.T @ cov @ m.basis, **dict(kwargs, basis=m.basis))
+
+    def to_dict(self):
+        return dict(type=MeasurementType.BEARING, feature=str(self.feature), direction=self.direction.tolist(),
+                    angular_covariance=self.angular_covariance.tolist(), basis=self.basis.tolist(),
+                    origin=self.origin.tolist(), depth_prior=self.depth_prior, dimensions=self.dimensions,
+                    is_homogeneous=self.is_homogeneous, clear_key=self.clear_key)
+
+
+def measurement_from_dict(data):
+    from nestbox.feature import to_feature
+    common = dict(dimensions=data.get('dimensions'), is_homogeneous=data.get('is_homogeneous'),
+                  clear_key=data.get('clear_key'))
+    feature = to_feature(data['feature'])
+    if data['type'] == MeasurementType.NORMAL:
+        return NormalMeasurement(feature, data['mean'], data['covariance'], **common)
+    if data['type'] == MeasurementType.BEARING:
+        return BearingMeasurement(feature, data['direction'], data['angular_covariance'],
+                                  basis=data.get('basis'), origin=data.get('origin'),
+                                  depth_prior=data.get('depth_prior'), **common)
+    raise ValueError(f"Unsupported measurement type: {data['type']}")
 
 
 # TODO ok this is totally unhinged.
