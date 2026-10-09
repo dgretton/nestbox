@@ -18,9 +18,14 @@ step, so the dynamics are autonomous: no schedule, no step counter, no momentum.
 seamless, data changes are picked up on the next step, and with static data the estimate converges to a fixed point
 and stays there. Directions the data doesn't constrain get no gradient, so they stay put instead of random-walking.
 
+Solver. Feature points are eliminated (Schur complement), so each step solves a 6(N-1) pose system: cost grows with
+the number of coordinate systems, not features.
+
 Uncertainty. pose_covariances[name] is the Laplace approximation (inverse Gauss-Newton Hessian, marginalized over
 everything else) for each coordinate system relative to its component's fixed CS: 6x6, ordered
-[body-frame rotation (rad, applied as R <- R Exp(phi)), world-frame translation (m)].
+[body-frame rotation (rad, applied as R <- R Exp(phi)), world-frame translation (m)]. feature_estimates[f] is each
+shared feature's world position and posterior covariance; measurement_ellipsoids() gives every individual measurement
+as a world-frame Gaussian under the current poses.
 """
 import time
 import numpy as np
@@ -98,8 +103,30 @@ class GaussNewtonAligner(Aligner):
         self.damping = damping                    # Levenberg-Marquardt damping, relative to the Hessian diagonal
         self.sampled_points = np.zeros((0, 3))    # world feature estimates (the visualizer reads this attribute)
         self.pose_covariances = {}
+        self.feature_estimates = {}  # feature -> (world position, posterior covariance) for features seen by >= 2 CSs
         self.cost = None
         self._last_step = None
+
+    # ---------- inspection ----------
+
+    def measurement_ellipsoids(self, cs_names=None):
+        """Every NormalMeasurement as a world-frame Gaussian under the current pose estimates:
+        [(cs name, feature, center, covariance)], center = R mu + t, covariance = R Sigma R^T. Includes measurements of
+        features no other CS sees. Render e.g. a k-sigma ellipsoid from eigh(covariance)."""
+        out = []
+        with self.lock:
+            for i, cs in enumerate(self.coordinate_systems):
+                if cs_names is not None and cs.name not in cs_names:
+                    continue
+                R, t = _quat_to_matrix(self.current_orientations[i]), coerce_numpy(self.current_origins[i]).astype(float)
+                for feature, meas in list(cs.measurements.items()):
+                    if not isinstance(meas, NormalMeasurement):
+                        continue
+                    mu = coerce_numpy(meas.mean).astype(float).reshape(-1)
+                    cov = coerce_numpy(meas.covariance).astype(float)
+                    if mu.shape == (3,) and cov.shape == (3, 3):
+                        out.append((cs.name, feature, R @ mu + t, R @ cov @ R.T))
+        return out
 
     # ---------- problem assembly ----------
 
@@ -234,31 +261,47 @@ class GaussNewtonAligner(Aligner):
         free = [i for comp in comps for i in comp if i not in fixed]
         features = list(obs)
         pose_col = {i: 6 * k for k, i in enumerate(free)}
-        land_col = {f: 6 * len(free) + 3 * k for k, f in enumerate(features)}
-        n = 6 * len(free) + 3 * len(features)
+        n = 6 * len(free)
 
-        H = np.zeros((n, n))
-        g = np.zeros(n)
-        landmarks = {}
+        # Gauss-Newton system with every feature point eliminated (Schur complement). Each residual touches one pose and
+        # one feature, so the pose-pose block is block-diagonal and each feature is an independent 3x3 block:
+        #   S = H_pp - sum_f B_f H_ff^-1 B_f^T,   b = g_p - sum_f B_f H_ff^-1 g_f
+        # Cost scales with the number of coordinate systems, not features.
+        S = np.zeros((n, n))
+        b = np.zeros(n)
+        landmarks, eliminated = {}, {}
         for f in features:
             x = self._landmark(obs[f], Rs, ts)
             landmarks[f] = x
+            Hff = np.zeros((3, 3))
+            gf = np.zeros(3)
+            Bf = []  # (pose column, 6x3 cross block)
             for i, mu, W, _ in obs[f]:
                 v = Rs[i].T @ (x - ts[i])
                 r = W @ (v - mu)
-                blocks = [(land_col[f], W @ Rs[i].T)]
+                Jl = W @ Rs[i].T
+                Hff += Jl.T @ Jl
+                gf += Jl.T @ r
                 if i in pose_col:
                     c = pose_col[i]
-                    blocks += [(c, W @ _skew(v)), (c + 3, -W @ Rs[i].T)]
-                for ca, Ja in blocks:
-                    g[ca:ca + 3] += Ja.T @ r
-                    for cb, Jb in blocks:
-                        H[ca:ca + 3, cb:cb + 3] += Ja.T @ Jb
+                    Jp = np.hstack([W @ _skew(v), -Jl])
+                    S[c:c + 6, c:c + 6] += Jp.T @ Jp
+                    b[c:c + 6] += Jp.T @ r
+                    Bf.append((c, Jp.T @ Jl))
+            Kf = np.linalg.inv(Hff + 1e-12 * max(np.trace(Hff), 1.0) * np.eye(3))
+            for ca, Ba in Bf:
+                b[ca:ca + 6] -= Ba @ Kf @ gf
+                for cb, Bb in Bf:
+                    S[ca:ca + 6, cb:cb + 6] -= Ba @ Kf @ Bb.T
+            eliminated[f] = (Kf, Bf)
         self.sampled_points = np.array([landmarks[f] for f in features])
 
-        diag = np.diag(H).copy()
-        lam = self.damping * diag + 1e-12 * max(diag.max(), 1.0)
-        delta = -np.linalg.solve(H + np.diag(lam), g)
+        if n:
+            diag = np.diag(S).copy()
+            lam = self.damping * diag + 1e-12 * max(diag.max(), 1.0)
+            delta = -np.linalg.solve(S + np.diag(lam), b)
+        else:
+            delta = np.zeros(0)
 
         cost0 = self._cost(obs, Rs, ts)
         for _ in range(8):  # memoryless backtracking: shrink this step only if it would increase the cost
@@ -274,14 +317,21 @@ class GaussNewtonAligner(Aligner):
             Rn, tn, cost1 = Rs, ts, cost0
         self.cost = cost1
 
-        # Laplace covariance of each free pose, marginalized over landmarks and the other poses. Inverting the
-        # (barely) damped Hessian, not a pseudo-inverse, so unconstrained directions show up as huge variance
-        # rather than as zero.
-        if free:
-            cov = np.linalg.inv(H + np.diag(lam))
-            self.pose_covariances = {self.coordinate_systems[i].name: cov[c:c + 6, c:c + 6] for i, c in pose_col.items()}
-            for i in fixed:
-                self.pose_covariances[self.coordinate_systems[i].name] = np.zeros((6, 6))
+        # Laplace covariances. The inverse of the reduced system is exactly the pose block of the full inverse (poses
+        # marginalized over features). Inverting the (barely) damped matrix, not a pseudo-inverse, so unconstrained
+        # directions show up as huge variance rather than as zero. Feature-point posteriors follow per feature:
+        #   Cov(x_f) = K_f + K_f B_f^T Cov(poses) B_f K_f
+        Spp = np.linalg.inv(S + np.diag(lam)) if n else np.zeros((0, 0))
+        self.pose_covariances = {self.coordinate_systems[i].name: Spp[c:c + 6, c:c + 6] for i, c in pose_col.items()}
+        for i in fixed:
+            self.pose_covariances[self.coordinate_systems[i].name] = np.zeros((6, 6))
+        feature_covariances = {}
+        for f, (Kf, Bf) in eliminated.items():
+            C = Kf.copy()
+            for ca, Ba in Bf:
+                for cb, Bb in Bf:
+                    C += Kf @ Ba.T @ Spp[ca:ca + 6, cb:cb + 6] @ Bb @ Kf
+            feature_covariances[f] = C
 
         # pinned gauge: express everything so the pinned CS sits at the identity (as the other aligners do)
         if self.pinned_cs_idx is not None and self.pinned_cs_idx < len(Rn):
@@ -289,7 +339,9 @@ class GaussNewtonAligner(Aligner):
             Rn = [Rp.T @ R for R in Rn]
             tn = [Rp.T @ (t - tp) for t in tn]
             self.sampled_points = (self.sampled_points - tp) @ Rp if len(self.sampled_points) else self.sampled_points
+            feature_covariances = {f: Rp.T @ C @ Rp for f, C in feature_covariances.items()}
         self.current_orientations = [_matrix_to_quat(R) for R in Rn]
         self.current_origins = list(tn)
+        self.feature_estimates = {f: (p, feature_covariances[f]) for f, p in zip(features, self.sampled_points)}
         for cs in self.coordinate_systems:
             cs.set_stale(False)
