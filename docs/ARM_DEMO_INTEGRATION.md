@@ -245,4 +245,11 @@ PYTHONPATH=nestbox/python ~/.venvs/nestbox/bin/python -m nestbox.test_bearing_me
 PYTHONPATH=nestbox/python ~/.venvs/nestbox/bin/python arm-demo-20261003/labspace/demo/test_camera_ray_test.py
 ```
 
-Live Quest verification is pending: the connected headset's existing camera test must be restarted to load these changes.
+Live Quest verification (2026-10-09): restarted the existing camera-only demo with `--depth-mode bearing` after
+Dana approved. Both hand tracking and the overlay reconnected to the connected Quest 2. Read a live overlay frame:
+four visible bearings produced 80 cyan cone segments (plus 16 frustum segments), with all coordinates finite.
+A headset screenshot confirms the cyan wireframes render. The default 2 px / 1100 px angular sigma is only 0.104°,
+so the cones look almost like lines at this scale. Live solved-vs-true position error reached 0.4 cm with seven features
+visible (0.8° rotation error, reported position sd 0.3 cm). Moving the hand produces the expected smoothing lag;
+with only two visible features the reported position uncertainty grows to tens of meters. The demo is left running
+in bearing mode; no Unity rebuild was needed. Translucent cone meshes remain future work.
