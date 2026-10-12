@@ -196,8 +196,11 @@ Sections 1–8 don't need anything outside this repo. The arm demo does:
   ```
   `python/nestbox/test_armdemo_alignment.py` reads `labspace/demo/data/hand_cal.json` by default, through a path relative
   to the current directory. Pass `--truth ~/code/labspace/demo/data/hand_cal.json` to point it there.
-- **Quest app:** Unity project `NestboxHand` (Unity 2021.3.13f1), plus the overlay scripts and the prebuilt APK in
-  Dana's `arm-demo-20261003/` folder. None of these are in git. Ask Dana for a copy.
+- **Quest app:** the private repo `dgretton/NestboxHand`, a Unity 2021.3.13f1 project. Its README covers installing
+  Unity with Android support, building the APK (**Nestbox → Build Arm Demo APK**), installing it, and the adb ports.
+  ```bash
+  cd ~/code && gh repo clone dgretton/NestboxHand
+  ```
 
 To work on them you also need:
 
